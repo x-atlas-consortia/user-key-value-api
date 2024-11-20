@@ -1,0 +1,52 @@
+#mac ds store
+.DS_Store
+
+# Ignore config files
+src/instance/*
+!src/instance/*.cfg.example
+app.cfg
+
+reload_from_neo4j/reload.properties
+
+# Ignore docker env file
+hubmap-docker/.env
+
+BUILD
+# mounted BUILD/VERSION file
+src/BUILD
+src/VERSION
+
+# Ignore docker copied files/folders
+hubmap-docker/user-key-value-api/BUILD
+hubmap-docker/user-key-value-api/VERSION
+hubmap-docker/user-key-value-api/src
+hubmap-docker/user-key-value-api/log
+
+sennet-docker/user-key-value-api/BUILD
+sennet-docker/user-key-value-api/VERSION
+sennet-docker/user-key-value-api/src
+sennet-docker/user-key-value-api/log
+
+# Ignore backup files created by MySQL Workbench
+sql/*.bak
+
+# Ignore __pycache__ directories in any path
+**/__pycache__
+
+# log files in any path
+**/*.log
+
+# Rotated log files
+**/*.log*
+
+.project
+.pydevproject
+
+test/*.sh
+
+*~
+
+log/*
+!log/README.md
+
+.idea/
