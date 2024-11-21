@@ -20,7 +20,9 @@ from hubmap_commons.S3_worker import S3Worker
 # Using the "format" paramstyle with mysql-connector-python module for MySQL 8.0+
 #
 # Ignore threat of unsanitized user input for SQL injection, XSS, etc. due to current
-# nature of site at AWS, UUID format checking in this microservice, etc.
+# nature of site at AWS, modification requests come from Globus authenticated users,
+# microservice rejection of non-valid JSON, microservice use of prepared statements,
+# MySQL rejection of non-valid JSON as KEY_VALUE, etc.
 SQL_UPSERT_USERID_KEY_VALUE = \
     ("INSERT INTO user_key_value"
      " (GLOBUS_IDENTITY_ID, KEY_NAME, KEY_VALUE, UPSERT_UTC_TIME)"
@@ -248,7 +250,7 @@ class UserKeyValueWorker:
                 with closing(dbConn.cursor(prepared=True)) as curs:
                     # Count on DBAPI-compliant MySQL Connector/Python to begin a transaction on the first
                     # SQL statement and keep open until explicit commit() call to allow rollback(), so
-                    # uuid and uuid_attributes committed atomically.
+                    # all table modifications committed atomically.
 
                     # Because our query uses a MySQL "upsert" structure to support both INSERT/PUT/create and
                     # UPDATE/POST/update operations, and because the current MySQL driver we use does not
