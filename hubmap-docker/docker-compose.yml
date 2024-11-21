@@ -1,0 +1,43 @@
+services:
+  
+  ukv-api:
+    hostname: ukv-api
+    container_name: ukv-api
+    # Map host machine port 1111 to container port 8080
+    # Only root can listen on ports below 1024, we use higher-numbered ports
+    # since nginx is running under non-root user hubmap
+    ports:
+      - "1111:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    environment:
+      # UID and GID 1001 to match the hive user by default
+      - HOST_GID=${HOST_GID:-1001}
+      - HOST_UID=${HOST_UID:-1001}
+    init: true
+    restart: always
+    volumes:
+      # Mount the app config to container in order to keep it outside of the image
+      - "../src/instance:/usr/src/app/src/instance"
+      # Mount the logging to container
+      - "../log:/usr/src/app/log"
+      # Mount conf.d on host machine to the nginx conf.d on container
+      - "./ukv-api/nginx/conf.d:/etc/nginx/conf.d"
+    networks:
+      - gateway_hubmap
+    # Send docker logs to AWS CloudWatch
+    logging: 
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: ukv-api-docker-logs
+        awslogs-stream: ${LOG_STREAM}
+
+networks:
+  # This is the network created by gateway to enable communicaton between multiple docker-compose projects
+  gateway_hubmap:
+    external: true
