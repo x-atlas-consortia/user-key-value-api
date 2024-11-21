@@ -19,7 +19,7 @@ from hubmap_commons.string_helper import isBlank
 global logger
 
 # Set logging format and level (default is warning)
-# All the API logging is forwarded to the uWSGI server and gets written into the log file `log/uwsgi-uuid-api.log`
+# All the API logging is forwarded to the uWSGI server and gets written into the log file `log/uwsgi-ukv-api.log`
 # Log rotation is handled via logrotate on the host system with a configuration file
 # Do NOT handle log file and rotation via the Python logging to avoid issues with multi-worker processes
 logging.basicConfig(    format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
@@ -65,11 +65,26 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 ## API Endpoints
 ####################################################################################################
 
+"""
+The default route
+
+Returns
+-------
+str
+    A welcome message
+"""
 @app.route('/', methods=['GET'])
 def index():
     return "Hello! This is the User Key/Value API service :)"
 
+"""
+Show the current VERSION and BUILD, as well as the status of MySQL connection.
 
+Returns
+-------
+json
+    A json containing the status details
+"""
 # Status of MySQL connection
 @app.route('/status', methods=['GET'])
 def status():
@@ -88,6 +103,19 @@ def status():
 
     return jsonify(response_data)
 
+"""
+An endpoint to create or update a key/value pair for the authenticated user.
+The value is valid JSON attached to the HTTP Request.
+On success returns an HTTP 200 Response.
+
+Parameters
+----------
+key : The key to store the value under for the authenticated user, as specified on the API endpoint 
+
+Returns
+-------
+HTTP 200 Response
+"""
 @app.route(rule='/user/keys/<key>', methods=["POST"])
 @app.route(rule='/user/keys/<key>', methods=["PUT"])
 @secured(has_write=True)
@@ -108,6 +136,18 @@ def upsert_key_value(key):
         return make_response(f"Unexpected error setting key '{key}'. See logs."
                              , 500)
 
+"""
+An endpoint to retrieve the value matching the given key for the authenticated user.
+On success returns the JSON value for the user's key
+
+Parameters
+----------
+key : The user's key to be retrieved, as specified on the API endpoint 
+
+Returns
+-------
+Valid JSON stored under the user's key
+"""
 @app.route(rule='/user/keys/<key>', methods=["GET"])
 def get_key_value(key):
     global worker
@@ -125,25 +165,6 @@ def get_key_value(key):
         eMsg = str(e)
         logger.error(e, exc_info=True)
         return make_response('Unexpected error querying database.  See logs', 500)
-
-@app.route('/uuid/<uuid>/exists', methods=["GET"])
-@secured(has_read=True)
-def is_uuid(uuid):
-    global worker
-
-    try:
-        if request.method == "GET":
-            exists = worker.getIdExists(uuid)
-            if isinstance(exists, Response):
-                return exists
-            return json.dumps(exists)
-        else:
-            return Response("Invalid request use GET to check the status of a UUID", 500)
-    except Exception as e:
-        eMsg = str(e)
-        logger.error(e, exc_info=True)
-        return (Response("Unexpected error: " + eMsg, 500))
-
 
 if __name__ == "__main__":
     try:
