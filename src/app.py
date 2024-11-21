@@ -5,7 +5,6 @@ import requests
 # Don't confuse urllib (Python native library) with urllib3 (3rd-party library, requests also uses urllib3)
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-from src.user_key_value_worker import UserKeyValueWorker
 from user_key_value_worker import UserKeyValueWorker
 import json
 from flask import Flask, request, Response, jsonify, make_response
@@ -13,7 +12,6 @@ from flask import Flask, request, Response, jsonify, make_response
 # HuBMAP commons
 # from hm_auth import secured
 from hubmap_commons.hm_auth import secured
-from hubmap_commons.string_helper import isBlank
 
 # Root logger configuration
 global logger
@@ -116,7 +114,6 @@ Returns
 -------
 HTTP 200 Response
 """
-@app.route(rule='/user/keys/<key>', methods=["POST"])
 @app.route(rule='/user/keys/<key>', methods=["PUT"])
 @secured(has_write=True)
 def upsert_key_value(key):
