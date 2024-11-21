@@ -17,15 +17,15 @@ src/BUILD
 src/VERSION
 
 # Ignore docker copied files/folders
-hubmap-docker/user-key-value-api/BUILD
-hubmap-docker/user-key-value-api/VERSION
-hubmap-docker/user-key-value-api/src
-hubmap-docker/user-key-value-api/log
+hubmap-docker/ukv-api/BUILD
+hubmap-docker/ukv-api/VERSION
+hubmap-docker/ukv-api/src
+hubmap-docker/ukve-api/log
 
-sennet-docker/user-key-value-api/BUILD
-sennet-docker/user-key-value-api/VERSION
-sennet-docker/user-key-value-api/src
-sennet-docker/user-key-value-api/log
+sennet-docker/ukv-api/BUILD
+sennet-docker/ukv-api/VERSION
+sennet-docker/ukv-api/src
+sennet-docker/ukv-api/log
 
 # Ignore backup files created by MySQL Workbench
 sql/*.bak
