@@ -7,7 +7,7 @@ from app_db import DBConn
 
 import mysql.connector.errors
 import werkzeug
-from flask import Response, Request, make_response
+from flask import Response, Request, make_response, jsonify
 
 # HuBMAP commons
 from hubmap_commons.hm_auth import AuthHelper
@@ -143,12 +143,12 @@ class UserKeyValueWorker:
         if len(a_key) > 50:
             self.logger.error(f"Length {len(a_key)} is longer than database-supported keys for"
                               f" key={a_key}.")
-            return make_response(f"Specified key '{a_key}' is longer than supported. See logs."
+            return make_response(jsonify({'error': f"Specified key '{a_key}' is longer than supported."})
                                  , 400)
         if re.match(pattern='.*\s.*', string=a_key, ):
             self.logger.error(f"Whitespace is not allowed in database-supported keys for"
                               f" key='{a_key}'.")
-            return make_response(f"Specified key '{a_key}' contains whitespace. See logs."
+            return make_response(jsonify({'error': f"Specified key '{a_key}' contains whitespace."})
                                  , 400)
         # Return nothing if the key is valid
         return
@@ -165,7 +165,7 @@ class UserKeyValueWorker:
             return user_info
         if 'sub' not in user_info:
             self.logger.error(f"Unable to find 'sub' entry in user_info={str(user_info)}")
-            return make_response(   f"Unable to retrieve Globus Identity ID for user.  See logs."
+            return make_response(   jsonify({'error': f"Unable to retrieve Globus Identity ID for user.  See logs."})
                                     , 400)
         return user_info['sub']
 
@@ -188,7 +188,8 @@ class UserKeyValueWorker:
                                  (globus_id, valid_key))
                     res = curs.fetchone()
                     if res is None:
-                        return make_response(f"Unable to find key '{valid_key}' for user '{globus_id}'.", 404)
+                        return make_response(jsonify({'error': f"Unable to find key '{valid_key}' for user '{globus_id}'."})
+                                             , 404)
                     # If the result tuple size matches the number of columns expected from
                     # SQL_SELECT_USERID_KEY_VALUE, assume result is correct. Return the
                     # "value" column as JSON.
@@ -200,7 +201,7 @@ class UserKeyValueWorker:
                         self.logger.error(f"Unexpected result from SQL_SELECT_USERID_KEY_VALUE query. Returned"
                                           f" res='{str(res)}' rather than tuple of expected length for"
                                           f" globus_id={globus_id}, valid_key={valid_key}.")
-                        return make_response(f"Unexpected error retrieving key '{valid_key}'. See logs."
+                        return make_response(jsonify({'error': f"Unexpected error retrieving key '{valid_key}'. See logs."})
                                              , 500)
                     # Count on database referential integrity constraints to avoid more than one
                     # result for the globus_id+valid_key query, so don't use curs.fetchall() or
@@ -214,7 +215,7 @@ class UserKeyValueWorker:
         self.logger.error(  f"Unexpected execution flow."
                             f" Reached end of getKeyValue() retrieving key '{valid_key}'"
                             f" for globus_id='{globus_id}'")
-        return make_response(f"Unexpected execution flow retrieving key '{valid_key}'. See logs."
+        return make_response(jsonify({'error': f"Unexpected execution flow retrieving key '{valid_key}'. See logs."})
                              , 500)
 
     def upsertKeyValue(self, req:Request, valid_key:str(50)):
@@ -225,7 +226,7 @@ class UserKeyValueWorker:
             return globus_id
 
         if not req.is_json:
-            return make_response(   f"Invalid input, JSON value to store for key '{valid_key}' is missing."
+            return make_response(jsonify({f"Invalid input, JSON value to store for key '{valid_key}' is missing."})
                                     , 400)
         # Verify the value to go into the database is valid JSON
         try:
@@ -235,11 +236,12 @@ class UserKeyValueWorker:
                                   f" for globus_id='{globus_id}',"
                                   f" valid_key='{valid_key}',"
                                   f" with req.data='{str(req.data)}'")
-            return make_response(   f"Invalid input, value to store for key '{valid_key}'"
-                                    f" cannot be decoded as valid JSON."
+            return make_response(   jsonify({'error':   f"Invalid input, value to store for key '{valid_key}'"
+                                                               f" cannot be decoded as valid JSON."})
                                     , 400)
         if user_key_value is None or len(user_key_value) <= 0:
-            return make_response(   f"Invalid input, JSON value to store for key '{valid_key}' is empty."
+            return make_response(   jsonify({'error':   f"Invalid input, JSON value to store for key '{valid_key}'"
+                                                               f" is empty."})
                                     , 400)
 
         with (closing(self.hmdb.getDBConnection()) as dbConn):
@@ -269,8 +271,8 @@ class UserKeyValueWorker:
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
-            return make_response()
-
+            return make_response(   jsonify({'message': f"Key/value pair stored for user."})
+                                    , 200)
     def testConnection(self):
         try:
             res = None

@@ -7,7 +7,7 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 from user_key_value_worker import UserKeyValueWorker
 import json
-from flask import Flask, request, Response, jsonify, make_response
+from flask import Flask, request, Response, make_response, jsonify
 
 # HuBMAP commons
 # from hm_auth import secured
@@ -130,7 +130,7 @@ def upsert_key_value(key):
         return resp
     except Exception as e:
         logger.error(e, exc_info=True)
-        return make_response(f"Unexpected error setting key '{key}'. See logs."
+        return make_response(jsonify({'error': f"Unexpected error setting key '{key}'. See logs."})
                              , 500)
 
 """
@@ -161,7 +161,8 @@ def get_key_value(key):
     except Exception as e:
         eMsg = str(e)
         logger.error(e, exc_info=True)
-        return make_response('Unexpected error querying database.  See logs', 500)
+        return make_response(jsonify({'error': f"Unexpected error querying database.  See logs"})
+                             , 500)
 
 if __name__ == "__main__":
     try:
