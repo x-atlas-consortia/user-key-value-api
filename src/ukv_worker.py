@@ -7,11 +7,14 @@ from app_db import DBConn
 
 import mysql.connector.errors
 import werkzeug
-from flask import Response, Request, make_response, jsonify
+from flask import Request, Response
 
 # HuBMAP commons
 from hubmap_commons.hm_auth import AuthHelper
 from hubmap_commons.S3_worker import S3Worker
+
+from ukv_exceptions import UKVConfigurationException, UKVKeyFormatException, UKVKeyNotFoundException, \
+    UKVDataStoreQueryException, UKVWorkerException, UKVValueFormatException, UKVRequestFormatException
 
 # Set up scalars with SQL strings matching the paramstyle of the database module, as
 # specified at https://peps.python.org/pep-0249
@@ -64,7 +67,7 @@ class UserKeyValueWorker:
         self.logger = logging.getLogger('user-key-value.service')
 
         if app_config is None:
-            raise Exception("Configuration data loaded by the app must be passed to the worker.")
+            raise UKVConfigurationException("Configuration data loaded by the app must be passed to the worker.")
         try:
             ####################################################################################################
             ## Load configuration variables used by this class
@@ -105,17 +108,17 @@ class UserKeyValueWorker:
                 self.logger.info("self.theS3Worker initialized")
             except Exception as e:
                 self.logger.error(f"Error initializing self.theS3Worker - '{str(e)}'.", exc_info=True)
-                raise Exception(f"Unexpected error: {str(e)}")
+                raise UKVConfigurationException(f"Unexpected error: {str(e)}")
 
         except KeyError as ke:
             self.logger.error("Expected configuration failed to load %s from app_config=%s.",ke,app_config)
-            raise Exception("Expected configuration failed to load. See the logs.")
+            raise UKVConfigurationException("Expected configuration failed to load. See the logs.")
 
         ####################################################################################################
         ## AuthHelper initialization
         ####################################################################################################
         if not clientId  or not clientSecret:
-            raise Exception("Globus client id and secret are required in AuthHelper")
+            raise UKVConfigurationException("Globus client id and secret are required in AuthHelper")
         # Initialize AuthHelper class and ensure singleton
         try:
             if not AuthHelper.isInitialized():
@@ -124,10 +127,11 @@ class UserKeyValueWorker:
                 self.logger.info('Initialized AuthHelper class successfully')
             else:
                 self.authHelper = AuthHelper.instance()
-        except Exception:
+        except Exception as e:
             msg = 'Failed to initialize the AuthHelper class'
             # Log the full stack trace, prepend a line with our message
             self.logger.exception(msg)
+            raise UKVConfigurationException(f"{msg}. See logs.")
 
         ####################################################################################################
         ## MySQL database connection
@@ -143,13 +147,11 @@ class UserKeyValueWorker:
         if len(a_key) > 50:
             self.logger.error(f"Length {len(a_key)} is longer than database-supported keys for"
                               f" key={a_key}.")
-            return make_response(jsonify({'error': f"Specified key '{a_key}' is longer than supported."})
-                                 , 400)
+            raise UKVKeyFormatException(f"Specified key '{a_key}' is longer than supported.")
         if re.match(pattern='.*\s.*', string=a_key, ):
             self.logger.error(f"Whitespace is not allowed in database-supported keys for"
                               f" key='{a_key}'.")
-            return make_response(jsonify({'error': f"Specified key '{a_key}' contains whitespace."})
-                                 , 400)
+            raise UKVKeyFormatException(f"Specified key '{a_key}' contains whitespace.")
         # Return nothing if the key is valid
         return
 
@@ -165,8 +167,7 @@ class UserKeyValueWorker:
             return user_info
         if 'sub' not in user_info:
             self.logger.error(f"Unable to find 'sub' entry in user_info={str(user_info)}")
-            return make_response(   jsonify({'error': f"Unable to retrieve Globus Identity ID for user.  See logs."})
-                                    , 400)
+            raise UKVDataStoreQueryException(f"Unable to retrieve Globus Identity ID for user.  See logs.")
         return user_info['sub']
 
     '''
@@ -188,21 +189,19 @@ class UserKeyValueWorker:
                                  (globus_id, valid_key))
                     res = curs.fetchone()
                     if res is None:
-                        return make_response(jsonify({'error': f"Unable to find key '{valid_key}' for user '{globus_id}'."})
-                                             , 404)
+                        raise UKVKeyNotFoundException(f"Unable to find key '{valid_key}' for user '{globus_id}'.")
+
                     # If the result tuple size matches the number of columns expected from
                     # SQL_SELECT_USERID_KEY_VALUE, assume result is correct. Return the
                     # "value" column as JSON.
                     if len(res) == 3:
-                        return make_response(res[2]
-                                             , 200
-                                             , {'Content-Type': 'application/json'})
+                        return res[2]
                     else:
                         self.logger.error(f"Unexpected result from SQL_SELECT_USERID_KEY_VALUE query. Returned"
                                           f" res='{str(res)}' rather than tuple of expected length for"
                                           f" globus_id={globus_id}, valid_key={valid_key}.")
-                        return make_response(jsonify({'error': f"Unexpected error retrieving key '{valid_key}'. See logs."})
-                                             , 500)
+                        raise UKVDataStoreQueryException(f"Unexpected error retrieving key '{valid_key}'. See logs.")
+
                     # Count on database referential integrity constraints to avoid more than one
                     # result for the globus_id+valid_key query, so don't use curs.fetchall() or
                     # check case for more results.
@@ -215,8 +214,7 @@ class UserKeyValueWorker:
         self.logger.error(  f"Unexpected execution flow."
                             f" Reached end of getKeyValue() retrieving key '{valid_key}'"
                             f" for globus_id='{globus_id}'")
-        return make_response(jsonify({'error': f"Unexpected execution flow retrieving key '{valid_key}'. See logs."})
-                             , 500)
+        raise UKVWorkerException(f"Unexpected execution flow retrieving key '{valid_key}'. See logs.")
 
     def upsertKeyValue(self, req:Request, valid_key:str(50)):
 
@@ -226,9 +224,9 @@ class UserKeyValueWorker:
             return globus_id
 
         if not req.is_json:
-            return make_response(jsonify({f"Invalid input, JSON value to store for key '{valid_key}' is missing."})
-                                    , 400)
-        # Verify the value to go into the database is valid JSON
+            raise UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
+
+        # Verify the value to go into the database is valid JSON, non-empty JSON.
         try:
             user_key_value = json.dumps(req.get_json())
         except werkzeug.exceptions.BadRequest as br:
@@ -236,13 +234,11 @@ class UserKeyValueWorker:
                                   f" for globus_id='{globus_id}',"
                                   f" valid_key='{valid_key}',"
                                   f" with req.data='{str(req.data)}'")
-            return make_response(   jsonify({'error':   f"Invalid input, value to store for key '{valid_key}'"
-                                                               f" cannot be decoded as valid JSON."})
-                                    , 400)
-        if user_key_value is None or len(user_key_value) <= 0:
-            return make_response(   jsonify({'error':   f"Invalid input, JSON value to store for key '{valid_key}'"
-                                                               f" is empty."})
-                                    , 400)
+            raise UKVValueFormatException(  f"Invalid input, value to store for key '{valid_key}'"
+                                            f" cannot be decoded as valid JSON.")
+        if user_key_value is None or len(user_key_value) <= 0 or len(req.get_json()) <= 0:
+            raise UKVValueFormatException(  f"Invalid input, JSON value to store for key '{valid_key}'"
+                                            f" is empty.")
 
         with (closing(self.hmdb.getDBConnection()) as dbConn):
             existing_autocommit_setting = dbConn.autocommit
@@ -258,21 +254,21 @@ class UserKeyValueWorker:
                     # support named parameters, repeat the arguments in the tuple to align with the
                     # positional %s markers in the prepared statement.
                     curs.execute(SQL_UPSERT_USERID_KEY_VALUE
-                                 , (globus_id, valid_key, user_key_value,
-                                    globus_id, valid_key, user_key_value))
+                                 , (globus_id, valid_key, json.dumps(req.get_json()),
+                                    globus_id, valid_key, json.dumps(req.get_json())))
                 dbConn.commit()
             except mysql.connector.errors.Error as dbErr:
                 dbConn.rollback()
                 self.logger.error(  msg=f"upsertKeyValue() database failure caused rollback: '{dbErr}'"
                                         f" for globus_id='{globus_id}',"
                                         f" valid_key='{valid_key}',"
-                                        f" user_key_value='{user_key_value}'")
-                raise dbErr
+                                        f" JSON value='{json.dumps(req.get_json())}'")
+                raise UKVDataStoreQueryException(f"Failed to store value for key '{valid_key}'. See logs.")
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
-            return make_response(   jsonify({'message': f"Key/value pair stored for user."})
-                                    , 200)
+            return f"Key/value pair stored for user."
+
     def testConnection(self):
         try:
             res = None

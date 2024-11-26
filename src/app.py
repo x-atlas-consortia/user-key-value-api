@@ -5,7 +5,10 @@ import requests
 # Don't confuse urllib (Python native library) with urllib3 (3rd-party library, requests also uses urllib3)
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-from user_key_value_worker import UserKeyValueWorker
+from src.ukv_exceptions import UKVValueFormatException
+from ukv_exceptions import UKVDataStoreQueryException, UKVWorkerException, UKVKeyFormatException, \
+    UKVKeyNotFoundException, UKVValueFormatException, UKVRequestFormatException
+from ukv_worker import UserKeyValueWorker
 import json
 from flask import Flask, request, Response, make_response, jsonify
 
@@ -19,7 +22,7 @@ global logger
 # Set logging format and level (default is warning)
 # All the API logging is forwarded to the uWSGI server and gets written into the log file `log/uwsgi-ukv-api.log`
 # Log rotation is handled via logrotate on the host system with a configuration file
-# Do NOT handle log file and rotation via the Python logging to avoid issues with multi-worker processes
+# Do NOT handle log file and rotation via the Python logging to avoid issues with multi-ukv_worker processes
 logging.basicConfig(    format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
                         , level=logging.DEBUG
                         , datefmt='%Y-%m-%d %H:%M:%S')
@@ -45,9 +48,9 @@ except Exception as e:
     logger.critical(f"Unable to initialize application from instance/app.cfg due to e='{str(e)}'")
     raise Exception("Failed to get configuration from instance/app.cfg")
 
-worker = None
+ukv_worker = None
 try:
-    worker = UserKeyValueWorker(app_config=app.config)
+    ukv_worker = UserKeyValueWorker(app_config=app.config)
     logger.info("UserKeyValueWorker instantiated using app.cfg setting.")
 except Exception as e:
     logger.critical(f"Unable to instantiate a UserKeyValueWorker during startup.")
@@ -86,20 +89,20 @@ json
 # Status of MySQL connection
 @app.route('/status', methods=['GET'])
 def status():
-    global worker
+    global ukv_worker
 
-    response_data = {
+    status_data = {
         # Use strip() to remove leading and trailing spaces, newlines, and tabs
         'version': (Path(__file__).absolute().parent.parent / 'VERSION').read_text().strip(),
         'build': (Path(__file__).absolute().parent.parent / 'BUILD').read_text().strip(),
         'mysql_connection': False
     }
 
-    dbcheck = worker.testConnection()
+    dbcheck = ukv_worker.testConnection()
     if dbcheck:
-        response_data['mysql_connection'] = True
+        status_data['mysql_connection'] = True
 
-    return jsonify(response_data)
+    return jsonify(status_data)
 
 """
 An endpoint to create or update a key/value pair for the authenticated user.
@@ -117,21 +120,30 @@ HTTP 200 Response
 @app.route(rule='/user/keys/<key>', methods=["PUT"])
 @secured(has_write=True)
 def upsert_key_value(key):
-    global worker
+    global ukv_worker
 
-    # Make sure the key is valid before passing it on to upsert operations
-    resp = worker.validateKey(a_key=key)
-    if isinstance(resp, Response):
+    # Make sure the key is valid before passing it on to a database query
+    try:
+        ukv_worker.validateKey(a_key=key)
+    except UKVKeyFormatException as e_400:
+        resp = jsonify({'error': e_400.message})
+        resp.status = 400
         return resp
 
     try:
-        resp = worker.upsertKeyValue(req=request
-                                     , valid_key=key)
+        success_msg = ukv_worker.upsertKeyValue(req=request
+                                                , valid_key=key)
+        return jsonify({'message': success_msg})
+    except (UKVValueFormatException, UKVRequestFormatException) as e_400:
+        resp = jsonify({'error': e_400.message})
+        resp.status = 400
         return resp
-    except Exception as e:
-        logger.error(e, exc_info=True)
-        return make_response(jsonify({'error': f"Unexpected error setting key '{key}'. See logs."})
-                             , 500)
+    except (UKVDataStoreQueryException, Exception) as e_500:
+        msg = f"Unexpected error setting key '{key}'."
+        logger.exception(e_500)
+        resp = jsonify({'error': f"{msg} See logs."})
+        resp.status = 500
+        return resp
 
 """
 An endpoint to retrieve the value matching the given key for the authenticated user.
@@ -147,22 +159,32 @@ Valid JSON stored under the user's key
 """
 @app.route(rule='/user/keys/<key>', methods=["GET"])
 def get_key_value(key):
-    global worker
+    global ukv_worker
 
-    # Make sure the key is valid before passing it on to upsert operations
-    resp = worker.validateKey(a_key=key)
-    if isinstance(resp, Response):
+    # Make sure the key is valid before passing it on to a database query
+    try:
+        ukv_worker.validateKey(a_key=key)
+    except UKVKeyFormatException as kfe:
+        resp = jsonify({'error': kfe.message})
+        resp.status = 400
         return resp
 
     try:
-        resp = worker.getKeyValue(req=request
-                                  , valid_key=key)
+        value_json = ukv_worker.getKeyValue(    req=request
+                                                , valid_key=key)
+        return make_response(value_json
+                             , 200
+                             , {'Content-Type': 'application/json'})
+    except UKVKeyNotFoundException as e_404:
+        resp = jsonify({'error': e_404.message})
+        resp.status = 404
         return resp
-    except Exception as e:
-        eMsg = str(e)
-        logger.error(e, exc_info=True)
-        return make_response(jsonify({'error': f"Unexpected error querying database.  See logs"})
-                             , 500)
+    except (UKVDataStoreQueryException, UKVWorkerException, Exception) as e_500:
+        msg = f"Unexpected error retrieving key '{key}'."
+        logger.exception(e_500)
+        resp = jsonify({'error': f"{msg} See logs."})
+        resp.status = 500
+        return resp
 
 if __name__ == "__main__":
     try:
