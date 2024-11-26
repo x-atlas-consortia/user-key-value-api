@@ -5,12 +5,10 @@ import requests
 # Don't confuse urllib (Python native library) with urllib3 (3rd-party library, requests also uses urllib3)
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-from src.ukv_exceptions import UKVValueFormatException
 from ukv_exceptions import UKVDataStoreQueryException, UKVWorkerException, UKVKeyFormatException, \
     UKVKeyNotFoundException, UKVValueFormatException, UKVRequestFormatException
 from ukv_worker import UserKeyValueWorker
-import json
-from flask import Flask, request, Response, make_response, jsonify
+from flask import Flask, request, jsonify, make_response
 
 # HuBMAP commons
 # from hm_auth import secured
