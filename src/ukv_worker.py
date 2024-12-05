@@ -3,6 +3,8 @@ import threading
 import json
 import re
 from contextlib import closing
+from typing import Annotated
+
 from app_db import DBConn
 
 import mysql.connector.errors
@@ -12,53 +14,12 @@ from flask import Request, Response
 # HuBMAP commons
 from hubmap_commons.hm_auth import AuthHelper
 from hubmap_commons.S3_worker import S3Worker
+from hubmap_commons.string_helper import listToCommaSeparated
 
-from ukv_exceptions import UKVConfigurationException, UKVKeyFormatException, UKVKeyNotFoundException, \
-    UKVDataStoreQueryException, UKVWorkerException, UKVValueFormatException, UKVRequestFormatException
-
-# Set up scalars with SQL strings matching the paramstyle of the database module, as
-# specified at https://peps.python.org/pep-0249
-#
-# Using the "format" paramstyle with mysql-connector-python module for MySQL 8.0+
-#
-# Ignore threat of unsanitized user input for SQL injection, XSS, etc. due to current
-# nature of site at AWS, modification requests come from Globus authenticated users,
-# microservice rejection of non-valid JSON, microservice use of prepared statements,
-# MySQL rejection of non-valid JSON as KEY_VALUE, etc.
-SQL_UPSERT_USERID_KEY_VALUE = \
-    ("INSERT INTO user_key_value"
-     " (GLOBUS_IDENTITY_ID, KEY_NAME, KEY_VALUE, UPSERT_UTC_TIME)"
-     " VALUES"
-     " (%s, %s, %s, NOW())"
-     " ON DUPLICATE KEY UPDATE"
-     " GLOBUS_IDENTITY_ID=%s"
-     " ,KEY_NAME=%s"
-     " ,KEY_VALUE=%s"
-     " ,UPSERT_UTC_TIME=NOW()"
-     )
-
-SQL_SELECT_USERID_KEY_VALUE = \
-    ("SELECT GLOBUS_IDENTITY_ID AS globus_id"
-     "       ,KEY_NAME AS keyname"
-     "       ,KEY_VALUE AS keyvalue"
-     " FROM user_key_value"
-     " WHERE GLOBUS_IDENTITY_ID = %s"
-     "   AND KEY_NAME = %s"
-     )
-
-SQL_SELECT_USERID_ALL = \
-    ("SELECT GLOBUS_IDENTITY_ID AS globus_id"
-     "       ,KEY_NAME AS key"
-     "       ,KEY_VALUE AS value"
-     " FROM user_key_value"
-     " WHERE GLOBUS_IDENTITY_ID = %s"
-     )
-
-SQL_DELETE_USERID_KEY_VALUE = \
-    ("DELETE FROM user_key_value"
-     " WHERE GLOBUS_IDENTITY_ID = %s"
-     "   AND KEY_NAME = %s"
-     )
+# from ukv_exceptions import UKVConfigurationException, UKVKeyFormatException, UKVKeyNotFoundException, \
+#     UKVDataStoreQueryException, UKVWorkerException, UKVValueFormatException, UKVRequestFormatException
+import ukv_exceptions as ukvEx
+import ukv_prepared_statments as ukvPS
 
 class UserKeyValueWorker:
     authHelper = None
@@ -67,7 +28,7 @@ class UserKeyValueWorker:
         self.logger = logging.getLogger('user-key-value.service')
 
         if app_config is None:
-            raise UKVConfigurationException("Configuration data loaded by the app must be passed to the worker.")
+            raise ukvEx.UKVConfigurationException("Configuration data loaded by the app must be passed to the worker.")
         try:
             ####################################################################################################
             ## Load configuration variables used by this class
@@ -108,17 +69,17 @@ class UserKeyValueWorker:
                 self.logger.info("self.theS3Worker initialized")
             except Exception as e:
                 self.logger.error(f"Error initializing self.theS3Worker - '{str(e)}'.", exc_info=True)
-                raise UKVConfigurationException(f"Unexpected error: {str(e)}")
+                raise ukvEx.UKVConfigurationException(f"Unexpected error: {str(e)}")
 
         except KeyError as ke:
             self.logger.error("Expected configuration failed to load %s from app_config=%s.",ke,app_config)
-            raise UKVConfigurationException("Expected configuration failed to load. See the logs.")
+            raise ukvEx.UKVConfigurationException("Expected configuration failed to load. See the logs.")
 
         ####################################################################################################
         ## AuthHelper initialization
         ####################################################################################################
         if not clientId  or not clientSecret:
-            raise UKVConfigurationException("Globus client id and secret are required in AuthHelper")
+            raise ukvEx.UKVConfigurationException("Globus client id and secret are required in AuthHelper")
         # Initialize AuthHelper class and ensure singleton
         try:
             if not AuthHelper.isInitialized():
@@ -131,7 +92,7 @@ class UserKeyValueWorker:
             msg = 'Failed to initialize the AuthHelper class'
             # Log the full stack trace, prepend a line with our message
             self.logger.exception(msg)
-            raise UKVConfigurationException(f"{msg}. See logs.")
+            raise ukvEx.UKVConfigurationException(f"{msg}. See logs.")
 
         ####################################################################################################
         ## MySQL database connection
@@ -141,23 +102,53 @@ class UserKeyValueWorker:
         self.dbUsername = dbUsername
         self.dbPassword = dbPassword
         self.lock = threading.RLock()
-        self.hmdb = DBConn(self.dbHost, self.dbUsername, self.dbPassword, self.dbName)
+        self.dbUKV = DBConn(self.dbHost, self.dbUsername, self.dbPassword, self.dbName)
 
-    def validateKey(self, a_key:str):
+    # Check the validity of a single key. Return nothing if valid, or raise a known
+    # exception for failed validations.
+    def validate_key(self, a_key: Annotated[str, 50]):
         if len(a_key) > 50:
             self.logger.error(f"Length {len(a_key)} is longer than database-supported keys for"
                               f" key={a_key}.")
-            raise UKVKeyFormatException(f"Specified key '{a_key}' is longer than supported.")
-        if re.match(pattern='.*\s.*', string=a_key, ):
+            raise ukvEx.UKVKeyFormatException(f"Specified key '{a_key}' is longer than supported.")
+        if re.match(pattern='.*\s.*', string=a_key):
             self.logger.error(f"Whitespace is not allowed in database-supported keys for"
                               f" key='{a_key}'.")
-            raise UKVKeyFormatException(f"Specified key '{a_key}' contains whitespace.")
+            raise ukvEx.UKVKeyFormatException(f"Specified key '{a_key}' contains whitespace.")
+        if re.match(pattern='.*[\'\"\`\#\_\%].*', string=a_key):
+            self.logger.error(f"key='{a_key}' was rejected for containing an unsupported character.")
+            raise ukvEx.UKVKeyFormatException(  f"The characters ',\",`,#,_, and % are not allowed in"
+                                                f" database-supported keys for key='{a_key}'.")
+        if re.match(pattern='.*(--|\*/|/\*).*', string=a_key):
+            self.logger.error(f"key='{a_key}' was rejected for containing an unsupported character sequence.")
+            raise ukvEx.UKVKeyFormatException(f"The character sequences */,/*, and -- are not allowed in"
+                                              f" database-supported keys for key='{a_key}'.")
         # Return nothing if the key is valid
         return
 
-    def _get_globus_id_for_request(self, req:Request):
-        # Get user information dict based on the http request(headers)
-        # `group_required` is a boolean, when True, 'hmgroupids' is in the output
+    # Check the validity of each key in a dictionary. Return nothing if all keys are valid. Raise a known
+    # exception for any failed validation, with a dict attached to the exception describing each failed validation.
+    def _validate_payload_keys(self, req: Request):
+        invalid_key_name_dict = {}
+        for requested_key_name in req.json:
+            try:
+                self.validate_key(requested_key_name)
+            except ukvEx.UKVKeyFormatException as ukfe:
+                invalid_key_name_dict[requested_key_name] = ukfe.message
+
+        if invalid_key_name_dict:
+            error_msg_dict = {
+                'error': f"Errors were found for {len(invalid_key_name_dict)} of the key strings submitted."
+                , 'error_by_key': invalid_key_name_dict
+            }
+            raise ukvEx.UKVBadKeyListException( message=f"Invalid key format in request"
+                                                , data=error_msg_dict)
+        else:
+            # Return nothing if the key is valid
+            return
+
+    # Extract the user information dict from the HTTP Request headers
+    def _get_globus_id_for_request(self, req: Request):
         # user_info is a dict
         user_info = self.authHelper.getUserInfoUsingRequest(httpReq=req)
         self.logger.info("======user_info======")
@@ -167,40 +158,40 @@ class UserKeyValueWorker:
             return user_info
         if 'sub' not in user_info:
             self.logger.error(f"Unable to find 'sub' entry in user_info={str(user_info)}")
-            raise UKVDataStoreQueryException(f"Unable to retrieve Globus Identity ID for user.  See logs.")
+            raise ukvEx.UKVDataStoreQueryException(f"Unable to retrieve Globus Identity ID for user.  See logs.")
         return user_info['sub']
 
     '''
     req - the GET request for single key
     valid_key - the key for which the associated value should be retrieved
     '''
-    def getKeyValue(self, req:Request, valid_key:str(50)):
+    def get_key_value(self, req: Request, valid_key: Annotated[str, 50]) -> str:
 
         globus_id = self._get_globus_id_for_request(req)
         if isinstance(globus_id, Response):
             # Return of a Response object indicates an error accessing the user's Globus Identity ID
             return globus_id
 
-        with (closing(self.hmdb.getDBConnection()) as dbConn):
+        with (closing(self.dbUKV.getDBConnection()) as dbConn):
             with closing(dbConn.cursor(prepared=True)) as curs:
                 try:
                     # execute() parameter substitution queries with a data tuple.
-                    curs.execute(SQL_SELECT_USERID_KEY_VALUE,
+                    curs.execute(ukvPS.SQL_SELECT_USERID_KEY_VALUE,
                                  (globus_id, valid_key))
                     res = curs.fetchone()
                     if res is None:
-                        raise UKVKeyNotFoundException(f"Unable to find key '{valid_key}' for user '{globus_id}'.")
+                        raise ukvEx.UKVKeyNotFoundException(f"Unable to find key '{valid_key}' for user '{globus_id}'.")
 
                     # If the result tuple size matches the number of columns expected from
-                    # SQL_SELECT_USERID_KEY_VALUE, assume result is correct. Return the
+                    # ukvPS.SQL_SELECT_USERID_KEY_VALUE, assume result is correct. Return the
                     # "value" column as JSON.
                     if len(res) == 3:
                         return res[2]
                     else:
-                        self.logger.error(f"Unexpected result from SQL_SELECT_USERID_KEY_VALUE query. Returned"
+                        self.logger.error(f"Unexpected result from ukvPS.SQL_SELECT_USERID_KEY_VALUE query. Returned"
                                           f" res='{str(res)}' rather than tuple of expected length for"
                                           f" globus_id={globus_id}, valid_key={valid_key}.")
-                        raise UKVDataStoreQueryException(f"Unexpected error retrieving key '{valid_key}'. See logs.")
+                        raise ukvEx.UKVDataStoreQueryException(f"Unexpected error retrieving key '{valid_key}'. See logs.")
 
                     # Count on database referential integrity constraints to avoid more than one
                     # result for the globus_id+valid_key query, so don't use curs.fetchall() or
@@ -212,11 +203,22 @@ class UserKeyValueWorker:
                     raise err
         # Expect preceding code to return or raise, and the following code to not be reached.
         self.logger.error(  f"Unexpected execution flow."
-                            f" Reached end of getKeyValue() retrieving key '{valid_key}'"
+                            f" Reached end of get_key_value() retrieving key '{valid_key}'"
                             f" for globus_id='{globus_id}'")
-        raise UKVWorkerException(f"Unexpected execution flow retrieving key '{valid_key}'. See logs.")
+        raise ukvEx.UKVWorkerException(f"Unexpected execution flow retrieving key '{valid_key}'. See logs.")
 
-    def upsertKeyValue(self, req:Request, valid_key:str(50)):
+    '''
+    Parameters
+    ----------
+    req - the POST request for certain named key/value pairs for the user
+
+    Returns
+    -------
+    A Python List containing a Python Dictionary for each key/value
+    pair the user has matching a key named in the Request.  Each key/value dictionary will have a
+    "key" element which is a string for a valid UTF-8 key name, and a "value" element which is valid JSON.
+    '''
+    def find_named_key_values(self, req: Request) -> list:
 
         globus_id = self._get_globus_id_for_request(req)
         if isinstance(globus_id, Response):
@@ -224,7 +226,124 @@ class UserKeyValueWorker:
             return globus_id
 
         if not req.is_json:
-            raise UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
+            raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
+
+        # Verify the value to go into the database is valid JSON, non-empty JSON.
+        try:
+            user_key_value = json.dumps(req.get_json())
+        except werkzeug.exceptions.BadRequest as br:
+            self.logger.error(msg=f"JSON decoding caused caused br='{br}'"
+                                  f" for globus_id='{globus_id}'"
+                                  f" with req.data='{str(req.data)}'")
+            raise ukvEx.UKVValueFormatException(    f"Invalid input, keys to find"
+                                                    f" cannot be decoded as valid JSON.")
+        if len(req.get_json()) <= 0:
+            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for keys to find is empty.')
+
+        self._validate_payload_keys(req=req)
+
+        with (closing(self.dbUKV.getDBConnection()) as dbConn):
+            with closing(dbConn.cursor(prepared=True)) as curs:
+                try:
+                    # Generate a prepared statement with enough placeholders for each key name in
+                    # the JSON payload to be placed in the MySQL IN clause.
+                    prepared_stmt = ukvPS.SQL_SELECT_USERID_NAMED_KEY_VALUES_str.replace(   'generated_placeholders_for_named_keys'
+                                                                                            , ', '.join(['%s'] * len(req.json)))
+                    # execute() parameter substitution queries with a data tuple.
+                    curs.execute(prepared_stmt,
+                                 ([globus_id]+req.json))
+                    res = curs.fetchall()
+
+                    if res is None or len(res) != len(req.json):
+                        # Assume all the keys to search for where not found, then remove the ones which
+                        # were found from the error data returned in the Response.
+                        missing_key_name_list = req.json
+                        if res is not None:
+                            for found_ukv in res:
+                                missing_key_name_list.remove(found_ukv[1])
+                        if missing_key_name_list:
+                            error_msg_dict = {
+                                'error': f"Keys were not found for {len(missing_key_name_list)} of the key strings submitted."
+                                , 'unfound_keys': missing_key_name_list
+                            }
+                            raise ukvEx.UKVRequestedKeysNotFoundException(  message=f"Invalid key format in request"
+                                                                            , data=error_msg_dict)
+
+                    # Iterate through each user key/value in the result set, form a Python Dictionary and add it to
+                    # a List, which can be converted to JSON.
+                    user_key_values_list = []
+                    for ukv in res:
+                        key_value_dict = {'key': ukv[1], 'value': json.loads(ukv[2])}
+                        user_key_values_list.append(key_value_dict)
+                    return user_key_values_list
+
+                except BaseException as err:
+                    self.logger.error(  f"Unexpected database problem. err='{err}'"
+                                        f" finding named user key/value data for globus_id='{globus_id}'"
+                                        f" Verify schema is current model.")
+                    raise err
+        # Expect preceding code to return or raise, and the following code to not be reached.
+        self.logger.error(  f"Unexpected execution flow."
+                            f" Reached end of find_named_key_values() finding named key/value data"
+                            f" for globus_id='{globus_id}'")
+        raise ukvEx.UKVWorkerException(f"Unexpected execution flow finding named key/value data for user. See logs.")
+
+    '''
+    Parameters
+    ----------
+    req - the GET request for all key/value pairs for the user
+
+    Returns
+    -------
+    A Python List containing a Python Dictionary for each key/value
+    pair the user has.  Each key/value dictionary will have a "key" element which
+    is a string for a valid UTF-8 key name, and a "value" element which is valid JSON.
+    '''
+    def get_all_key_values(self, req: Request) -> list:
+
+        globus_id = self._get_globus_id_for_request(req)
+        if isinstance(globus_id, Response):
+            # Return of a Response object indicates an error accessing the user's Globus Identity ID
+            return globus_id
+
+        with (closing(self.dbUKV.getDBConnection()) as dbConn):
+            with closing(dbConn.cursor(prepared=True)) as curs:
+                try:
+                    # execute() parameter substitution queries with a data tuple.
+                    curs.execute(ukvPS.SQL_SELECT_USERID_ALL,
+                                 (globus_id,)) # N.B. comma needed to form single-value tuple for prepared statement.
+                    res = curs.fetchall()
+                    if not res:
+                        raise ukvEx.UKVKeyNotFoundException(f"Unable to find any key/value data for user '{globus_id}'.")
+
+                    # Iterate through each user key/value in the result set, form a Python Dictionary and add it to
+                    # a List, which can be converted to JSON.
+                    user_key_values_list = []
+                    for ukv in res:
+                        key_value_dict = {'key': ukv[1], 'value': json.loads(ukv[2])}
+                        user_key_values_list.append(key_value_dict)
+                    return user_key_values_list
+
+                except BaseException as err:
+                    self.logger.error(  f"Unexpected database problem. err='{err}'"
+                                        f" retrieving all user key/value data for globus_id='{globus_id}'"
+                                        f" Verify schema is current model.")
+                    raise err
+        # Expect preceding code to return or raise, and the following code to not be reached.
+        self.logger.error(  f"Unexpected execution flow."
+                            f" Reached end of get_all_key_values() retrieving all key/value data"
+                            f" for globus_id='{globus_id}'")
+        raise ukvEx.UKVWorkerException(f"Unexpected execution flow retrieving all key/value data for user. See logs.")
+
+    def upsert_key_value(self, req: Request, valid_key: Annotated[str, 50]):
+
+        globus_id = self._get_globus_id_for_request(req)
+        if isinstance(globus_id, Response):
+            # Return of a Response object indicates an error accessing the user's Globus Identity ID
+            return globus_id
+
+        if not req.is_json:
+            raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
 
         # Verify the value to go into the database is valid JSON, non-empty JSON.
         try:
@@ -234,13 +353,13 @@ class UserKeyValueWorker:
                                   f" for globus_id='{globus_id}',"
                                   f" valid_key='{valid_key}',"
                                   f" with req.data='{str(req.data)}'")
-            raise UKVValueFormatException(  f"Invalid input, value to store for key '{valid_key}'"
-                                            f" cannot be decoded as valid JSON.")
+            raise ukvEx.UKVValueFormatException(f"Invalid input, value to store for key '{valid_key}'"
+                                                f" cannot be decoded as valid JSON.")
         if user_key_value is None or len(user_key_value) <= 0 or len(req.get_json()) <= 0:
-            raise UKVValueFormatException(  f"Invalid input, JSON value to store for key '{valid_key}'"
+            raise ukvEx.UKVValueFormatException(  f"Invalid input, JSON value to store for key '{valid_key}'"
                                             f" is empty.")
 
-        with (closing(self.hmdb.getDBConnection()) as dbConn):
+        with (closing(self.dbUKV.getDBConnection()) as dbConn):
             existing_autocommit_setting = dbConn.autocommit
             dbConn.autocommit = False
             try:
@@ -249,39 +368,127 @@ class UserKeyValueWorker:
                     # SQL statement and keep open until explicit commit() call to allow rollback(), so
                     # all table modifications committed atomically.
 
-                    # Because our query uses a MySQL "upsert" structure to support both INSERT/PUT/create and
-                    # UPDATE/POST/update operations, and because the current MySQL driver we use does not
-                    # support named parameters, repeat the arguments in the tuple to align with the
-                    # positional %s markers in the prepared statement.
-                    curs.execute(SQL_UPSERT_USERID_KEY_VALUE
-                                 , (globus_id, valid_key, json.dumps(req.get_json()),
-                                    globus_id, valid_key, json.dumps(req.get_json())))
+                    curs.execute(ukvPS.SQL_UPSERT_USERID_KEY_VALUE
+                                 , (globus_id, valid_key, json.dumps(req.get_json())))
                 dbConn.commit()
             except mysql.connector.errors.Error as dbErr:
                 dbConn.rollback()
-                self.logger.error(  msg=f"upsertKeyValue() database failure caused rollback: '{dbErr}'"
+                self.logger.error(  msg=f"upsert_key_value() database failure caused rollback: '{dbErr}'"
                                         f" for globus_id='{globus_id}',"
                                         f" valid_key='{valid_key}',"
                                         f" JSON value='{json.dumps(req.get_json())}'")
-                raise UKVDataStoreQueryException(f"Failed to store value for key '{valid_key}'. See logs.")
+                raise ukvEx.UKVDataStoreQueryException(f"Failed to store value for key '{valid_key}'. See logs.")
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
             return f"Key/value pair stored for user."
 
-    def testConnection(self):
+    def upsert_key_values(self, req: Request):
+        globus_id = self._get_globus_id_for_request(req)
+        if isinstance(globus_id, Response):
+            # Return of a Response object indicates an error accessing the user's Globus Identity ID
+            return globus_id
+
+        if not req.is_json:
+            raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
+
+        # Verify the value to go into the database is valid JSON, non-empty JSON.
         try:
-            res = None
-            with closing(self.hmdb.getDBConnection()) as dbConn:
+            user_key_value_dict = req.get_json()
+        except werkzeug.exceptions.BadRequest as br:
+            self.logger.error(msg=f"JSON decoding caused caused br='{br}'"
+                                  f" for globus_id='{globus_id}'"
+                                  f" with req.data='{str(req.data)}'")
+            raise ukvEx.UKVValueFormatException(    f"Invalid input, keys to store"
+                                                    f" cannot be decoded as valid JSON.")
+        if len(user_key_value_dict) <= 0:
+            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for keys to store is empty.')
+
+        self._validate_payload_keys(req=req)
+
+        # Flatten each validated key/value pair from the JSON payload into a List which
+        # can be used for parameter substitution in the prepared statement.
+        param_list = []
+        for key, value in user_key_value_dict.items():
+            param_list.extend([key, json.dumps(value)])
+
+        with (closing(self.dbUKV.getDBConnection()) as dbConn):
+            stored_key_value_count = 0
+            existing_autocommit_setting = dbConn.autocommit
+            dbConn.autocommit = False
+            try:
+                with closing(dbConn.cursor(prepared=True)) as curs:
+
+                    # Generate a prepared statement with enough placeholders for each key name in
+                    # the JSON payload to be placed in the MySQL IN clause.
+                    new_tuple_placeholder = f"('{globus_id}', %s, %s, NOW())"
+                    prepared_stmt = ukvPS.SQL_UPSERT_USERID_KEY_VALUES_str.replace( 'generated_placeholders_for_new_tuples'
+                                                                                    , ', '.join([new_tuple_placeholder] * len(user_key_value_dict)))
+
+                    # execute() parameter substitution queries with a data tuple.
+                    curs.execute(prepared_stmt,
+                                 tuple(param_list))
+
+                dbConn.commit()
+                stored_key_value_count = len(user_key_value_dict)
+            except mysql.connector.errors.Error as dbErr:
+                dbConn.rollback()
+                self.logger.error(  msg=f"upsert_key_values() database failure caused rollback: '{dbErr}'"
+                                        f" for globus_id='{globus_id}',"
+                                        f" JSON value='{json.dumps(req.get_json())}'")
+                raise ukvEx.UKVDataStoreQueryException('Failed to store values for keys See logs.')
+
+            # restore the autocommit setting, even though closing it by going out of scope.
+            dbConn.autocommit = existing_autocommit_setting
+            return f"Stored {stored_key_value_count} key/value pairs for user."
+
+    def delete_key_value(self, req: Request, valid_key: Annotated[str, 50]):
+
+        globus_id = self._get_globus_id_for_request(req)
+        if isinstance(globus_id, Response):
+            # Return of a Response object indicates an error accessing the user's Globus Identity ID
+            return globus_id
+
+        rows_deleted = 0
+        with (closing(self.dbUKV.getDBConnection()) as dbConn):
+            existing_autocommit_setting = dbConn.autocommit
+            dbConn.autocommit = False
+            try:
+                with closing(dbConn.cursor(buffered=True)) as curs:
+                    # Count on DBAPI-compliant MySQL Connector/Python to begin a transaction on the first
+                    # SQL statement and keep open until explicit commit() call to allow rollback(), so
+                    # all table modifications committed atomically.
+
+                    curs.execute(   ukvPS.SQL_DELETE_USERID_KEY_VALUE
+                                    , (globus_id, valid_key))
+                    rows_deleted = curs.rowcount
+                dbConn.commit()
+            except mysql.connector.errors.Error as dbErr:
+                dbConn.rollback()
+                self.logger.error(  msg=f"delete_key_value() database failure caused rollback: '{dbErr}'"
+                                        f" for globus_id='{globus_id}',"
+                                        f" valid_key='{valid_key}',")
+                raise ukvEx.UKVDataStoreQueryException(f"Failed to delete key '{valid_key}'. See logs.")
+
+            # restore the autocommit setting, even though closing it by going out of scope.
+            dbConn.autocommit = existing_autocommit_setting
+            if rows_deleted == 1:
+                return f"Key/value pair for user deleted."
+            elif rows_deleted == 0:
+                raise ukvEx.UKVKeyNotFoundException(f"Unable to find key '{valid_key}' for user '{globus_id}'.")
+            else:
+                self.logger.error("Deletion of key '{valid_key}' resulted in {rows_deleted} deletions instead of one row.")
+                raise ukvEx.UKVDataStoreQueryException(f"Deletion of key '{valid_key}' resulted in {rows_deleted} deletions. See logs.")
+
+    def test_connection(self):
+        try:
+            with closing(self.dbUKV.getDBConnection()) as dbConn:
                 with closing(dbConn.cursor(prepared=True)) as curs:
                     curs.execute("select 'ANYTHING'")
                     res = curs.fetchone()
 
-            if (res is None or len(res) == 0): return False
-            if (res[0] == 'ANYTHING'):
-                return True
-            else:
-                return False
+            if res is None or len(res) == 0: return False
+            return res[0] == 'ANYTHING'
         except Exception as e:
             self.logger.error(e, exc_info=True)
             return False
