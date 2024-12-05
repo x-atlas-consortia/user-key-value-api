@@ -126,11 +126,11 @@ class UserKeyValueWorker:
         # Return nothing if the key is valid
         return
 
-    # Check the validity of each key in a dictionary. Return nothing if all keys are valid. Raise a known
+    # Check the validity of each key in a list. Return nothing if all keys are valid. Raise a known
     # exception for any failed validation, with a dict attached to the exception describing each failed validation.
-    def _validate_payload_keys(self, req: Request):
+    def _validate_key_list(self, key_list:list):
         invalid_key_name_dict = {}
-        for requested_key_name in req.json:
+        for requested_key_name in key_list:
             try:
                 self.validate_key(requested_key_name)
             except ukvEx.UKVKeyFormatException as ukfe:
@@ -240,7 +240,7 @@ class UserKeyValueWorker:
         if len(req.get_json()) <= 0:
             raise ukvEx.UKVValueFormatException('Invalid input, JSON value for keys to find is empty.')
 
-        self._validate_payload_keys(req=req)
+        self._validate_key_list(key_list=req.get_json())
 
         with (closing(self.dbUKV.getDBConnection()) as dbConn):
             with closing(dbConn.cursor(prepared=True)) as curs:
@@ -394,23 +394,48 @@ class UserKeyValueWorker:
 
         # Verify the value to go into the database is valid JSON, non-empty JSON.
         try:
-            user_key_value_dict = req.get_json()
+            user_key_value_dict_list = req.get_json()
         except werkzeug.exceptions.BadRequest as br:
             self.logger.error(msg=f"JSON decoding caused caused br='{br}'"
                                   f" for globus_id='{globus_id}'"
                                   f" with req.data='{str(req.data)}'")
             raise ukvEx.UKVValueFormatException(    f"Invalid input, keys to store"
                                                     f" cannot be decoded as valid JSON.")
-        if len(user_key_value_dict) <= 0:
-            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for keys to store is empty.')
+        if len(user_key_value_dict_list) <= 0:
+            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for dictionaries of key/value pairs to store is empty.')
 
-        self._validate_payload_keys(req=req)
+        if not isinstance(user_key_value_dict_list, list):
+            raise ukvEx.UKVValueFormatException(f"Invalid input, only a list of dictionaries, each containing 'key' and"
+                                                f" 'value' entries, is accepted in the JSON payload.")
 
-        # Flatten each validated key/value pair from the JSON payload into a List which
-        # can be used for parameter substitution in the prepared statement.
+        # Flatten the dictionary of input aligned with the specification into a reasonable Python dictionary which
+        # can be validated.  Also, put both the keys and values on a list which can then used for
+        # parameter substitution in the prepared statement.
+        new_user_key_value_dict = {}
         param_list = []
-        for key, value in user_key_value_dict.items():
-            param_list.extend([key, json.dumps(value)])
+        for kv_dict in user_key_value_dict_list:
+            if not isinstance(kv_dict, dict):
+                raise ukvEx.UKVValueFormatException(f"Invalid input, only a list of dictionaries, each containing 'key' and 'value' entries, is accepted in the JSON payload.")
+            if 'key' not in kv_dict or 'value' not in kv_dict:
+                raise ukvEx.UKVValueFormatException(f"Invalid input, only a list of dictionaries, each containing 'key' and 'value' entries, is accepted in the JSON payload.")
+
+            # Verify the value to go into the database is valid JSON, non-empty JSON.
+            try:
+                value_json = json.dumps(kv_dict['value'])
+            except werkzeug.exceptions.BadRequest as br:
+                self.logger.error(msg=f"JSON decoding caused caused br='{br}'"
+                                      f" for globus_id='{globus_id}',"
+                                      f" key='{kv_dict['key']}',"
+                                      f" value='{kv_dict['key']}'")
+                raise ukvEx.UKVValueFormatException(f"Invalid input, value to store for key '{kv_dict['key']}'"
+                                                    f" cannot be decoded as valid JSON.")
+            if value_json is None or len(value_json) <= 0:
+                raise ukvEx.UKVValueFormatException(f"Invalid input, JSON value to store for key '{kv_dict['key']}'"
+                                                    f" is empty.")
+            new_user_key_value_dict[kv_dict['key']] = value_json
+            param_list.extend([kv_dict['key'], value_json])
+
+        self._validate_key_list(key_list=list(new_user_key_value_dict.keys()))
 
         with (closing(self.dbUKV.getDBConnection()) as dbConn):
             stored_key_value_count = 0
@@ -423,14 +448,14 @@ class UserKeyValueWorker:
                     # the JSON payload to be placed in the MySQL IN clause.
                     new_tuple_placeholder = f"('{globus_id}', %s, %s, NOW())"
                     prepared_stmt = ukvPS.SQL_UPSERT_USERID_KEY_VALUES_str.replace( 'generated_placeholders_for_new_tuples'
-                                                                                    , ', '.join([new_tuple_placeholder] * len(user_key_value_dict)))
+                                                                                    , ', '.join([new_tuple_placeholder] * len(user_key_value_dict_list)))
 
                     # execute() parameter substitution queries with a data tuple.
                     curs.execute(prepared_stmt,
                                  tuple(param_list))
 
                 dbConn.commit()
-                stored_key_value_count = len(user_key_value_dict)
+                stored_key_value_count = len(user_key_value_dict_list)
             except mysql.connector.errors.Error as dbErr:
                 dbConn.rollback()
                 self.logger.error(  msg=f"upsert_key_values() database failure caused rollback: '{dbErr}'"

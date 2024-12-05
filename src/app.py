@@ -295,7 +295,8 @@ def get_all_key_values():
 
 """
 An endpoint to create or update a collection of key/value pairs for the authenticated user which
-are specified in the JSON payload of the HTTP Request.  Each key must be valid, and each value must
+are specified in the JSON payload of the HTTP Request.  The JSON body is a list containing a
+dictionary for each key/value pair for the user to store.  Each key must be valid, and each value must
 be valid JSON itself. No key/value pair is stored unless all key/value pairs are stored, as indicated
 by an HTTP 200 Response.
 
