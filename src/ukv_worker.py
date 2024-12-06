@@ -92,7 +92,7 @@ class UserKeyValueWorker:
             msg = 'Failed to initialize the AuthHelper class'
             # Log the full stack trace, prepend a line with our message
             self.logger.exception(msg)
-            raise ukvEx.UKVConfigurationException(f"{msg}. See logs.")
+            raise ukvEx.UKVConfigurationException(msg)
 
         ####################################################################################################
         ## MySQL database connection
@@ -158,7 +158,7 @@ class UserKeyValueWorker:
             return user_info
         if 'sub' not in user_info:
             self.logger.error(f"Unable to find 'sub' entry in user_info={str(user_info)}")
-            raise ukvEx.UKVDataStoreQueryException(f"Unable to retrieve Globus Identity ID for user.  See logs.")
+            raise ukvEx.UKVDataStoreQueryException(f"Unable to retrieve Globus Identity ID for user.")
         return user_info['sub']
 
     '''
@@ -191,7 +191,7 @@ class UserKeyValueWorker:
                         self.logger.error(f"Unexpected result from ukvPS.SQL_SELECT_USERID_KEY_VALUE query. Returned"
                                           f" res='{str(res)}' rather than tuple of expected length for"
                                           f" globus_id={globus_id}, valid_key={valid_key}.")
-                        raise ukvEx.UKVDataStoreQueryException(f"Unexpected error retrieving key '{valid_key}'. See logs.")
+                        raise ukvEx.UKVDataStoreQueryException(f"Unexpected error retrieving key '{valid_key}'.")
 
                     # Count on database referential integrity constraints to avoid more than one
                     # result for the globus_id+valid_key query, so don't use curs.fetchall() or
@@ -205,7 +205,7 @@ class UserKeyValueWorker:
         self.logger.error(  f"Unexpected execution flow."
                             f" Reached end of get_key_value() retrieving key '{valid_key}'"
                             f" for globus_id='{globus_id}'")
-        raise ukvEx.UKVWorkerException(f"Unexpected execution flow retrieving key '{valid_key}'. See logs.")
+        raise ukvEx.UKVWorkerException(f"Unexpected execution flow retrieving key '{valid_key}'.")
 
     '''
     Parameters
@@ -286,7 +286,7 @@ class UserKeyValueWorker:
         self.logger.error(  f"Unexpected execution flow."
                             f" Reached end of find_named_key_values() finding named key/value data"
                             f" for globus_id='{globus_id}'")
-        raise ukvEx.UKVWorkerException(f"Unexpected execution flow finding named key/value data for user. See logs.")
+        raise ukvEx.UKVWorkerException(f"Unexpected execution flow finding named key/value data for user.")
 
     '''
     Parameters
@@ -333,7 +333,7 @@ class UserKeyValueWorker:
         self.logger.error(  f"Unexpected execution flow."
                             f" Reached end of get_all_key_values() retrieving all key/value data"
                             f" for globus_id='{globus_id}'")
-        raise ukvEx.UKVWorkerException(f"Unexpected execution flow retrieving all key/value data for user. See logs.")
+        raise ukvEx.UKVWorkerException(f"Unexpected execution flow retrieving all key/value data for user.")
 
     def upsert_key_value(self, req: Request, valid_key: Annotated[str, 50]):
 
@@ -377,7 +377,7 @@ class UserKeyValueWorker:
                                         f" for globus_id='{globus_id}',"
                                         f" valid_key='{valid_key}',"
                                         f" JSON value='{json.dumps(req.get_json())}'")
-                raise ukvEx.UKVDataStoreQueryException(f"Failed to store value for key '{valid_key}'. See logs.")
+                raise ukvEx.UKVDataStoreQueryException(f"Failed to store value for key '{valid_key}'.")
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
@@ -461,7 +461,7 @@ class UserKeyValueWorker:
                 self.logger.error(  msg=f"upsert_key_values() database failure caused rollback: '{dbErr}'"
                                         f" for globus_id='{globus_id}',"
                                         f" JSON value='{json.dumps(req.get_json())}'")
-                raise ukvEx.UKVDataStoreQueryException('Failed to store values for keys See logs.')
+                raise ukvEx.UKVDataStoreQueryException('Failed to store values for keys.')
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
@@ -493,7 +493,7 @@ class UserKeyValueWorker:
                 self.logger.error(  msg=f"delete_key_value() database failure caused rollback: '{dbErr}'"
                                         f" for globus_id='{globus_id}',"
                                         f" valid_key='{valid_key}',")
-                raise ukvEx.UKVDataStoreQueryException(f"Failed to delete key '{valid_key}'. See logs.")
+                raise ukvEx.UKVDataStoreQueryException(f"Failed to delete key '{valid_key}'.")
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
@@ -503,7 +503,7 @@ class UserKeyValueWorker:
                 raise ukvEx.UKVKeyNotFoundException(f"Unable to find key '{valid_key}' for user '{globus_id}'.")
             else:
                 self.logger.error("Deletion of key '{valid_key}' resulted in {rows_deleted} deletions instead of one row.")
-                raise ukvEx.UKVDataStoreQueryException(f"Deletion of key '{valid_key}' resulted in {rows_deleted} deletions. See logs.")
+                raise ukvEx.UKVDataStoreQueryException(f"Deletion of key '{valid_key}' resulted in {rows_deleted} deletions.")
 
     def test_connection(self):
         try:

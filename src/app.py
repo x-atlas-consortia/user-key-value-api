@@ -148,8 +148,8 @@ def upsert_key_value(key: Annotated[str, 50]):
         return jsonify({'error': e_400.message}), 400
     except (ukvEx.UKVDataStoreQueryException, Exception) as e_500:
         msg = f"Unexpected error setting key '{key}'."
-        logger.exception(e_500)
-        return jsonify({'error': f"{msg} See logs."}), 500
+        logger.exception(msg)
+        return jsonify({'error': msg}), 500
 
 """
 An endpoint to retrieve the value matching the given key for the authenticated user.
@@ -195,8 +195,8 @@ def get_key_value(key: Annotated[str, 50]):
         return jsonify({'error': e_404.message}), 404
     except (ukvEx.UKVDataStoreQueryException, ukvEx.UKVWorkerException, Exception) as e_500:
         msg = f"Unexpected error retrieving key '{key}'."
-        logger.exception(e_500)
-        return jsonify({'error': f"{msg} See logs."}), 500
+        logger.exception(msg)
+        return jsonify({'error': msg}), 500
 
 """
 An endpoint to retrieve the key/value pairs for the authenticated user which match the
@@ -253,8 +253,8 @@ def find_named_key_values():
         return jsonify(e_404.data), 404
     except (Exception) as e_500:
         msg = f"Unexpected error retrieving all key/value data for user."
-        logger.exception(e_500)
-        return jsonify({'error': f"{msg} See logs."}), 500
+        logger.exception(msg)
+        return jsonify({'error': msg}), 500
 
 """
 An endpoint to retrieve all the key/value pairs for the authenticated user.
@@ -290,8 +290,8 @@ def get_all_key_values():
         return jsonify({'error': e_404.message}), 404
     except (ukvEx.UKVDataStoreQueryException, ukvEx.UKVWorkerException, Exception) as e_500:
         msg = f"Unexpected error retrieving all key/value data for user."
-        logger.exception(e_500)
-        return jsonify({'error': f"{msg} See logs."}), 500
+        logger.exception(msg)
+        return jsonify({'error': msg}), 500
 
 """
 An endpoint to create or update a collection of key/value pairs for the authenticated user which
@@ -337,7 +337,7 @@ def upsert_key_values():
         return jsonify(e_400.data), 400
     except (ukvEx.UKVDataStoreQueryException, Exception) as e_500:
         logger.exception(f"Unexpected error setting key/value pair(s) in JSON payload={request.get_json()}")
-        return jsonify({'error': f"Unexpected error setting key/value pair(s). See logs."}), 500
+        return jsonify({'error': f"Unexpected error setting key/value pair(s)."}), 500
 
 """
 An endpoint to delete a key/value pair for the authenticated user.
@@ -385,8 +385,8 @@ def delete_key_value(key: Annotated[str, 50]):
         return jsonify({'error': e_404.message}), 404
     except (ukvEx.UKVDataStoreQueryException, Exception) as e_500:
         msg = f"Unexpected error deleting key '{key}'."
-        logger.exception(e_500)
-        return jsonify({'error': f"{msg} See logs."}), 500
+        logger.exception(msg)
+        return jsonify({'error': msg}), 500
 
 if __name__ == "__main__":
     try:
