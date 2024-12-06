@@ -87,9 +87,9 @@ Ways of creating the database vary by platform (e.g. MySQL Workbench,
 dBeaver, mysql AKA the command line client.) The essential command to
 run is:
 ````
-CREATE DATABASE `hm_user_key_value`
+CREATE DATABASE `hm_dev_ukv_db`
 ````
 Note the backquotes of this command.  Also decide whether you want to
-start with a customized name (like `hm_kbkbkb_user_key_value`), and
+start with a customized name (like `hm_my_ukv_db`), and
 how you will manage that if the database will eventually become Dev,
 Stage, or Prod.
