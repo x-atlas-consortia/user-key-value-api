@@ -144,7 +144,7 @@ class UserKeyValueWorker:
             raise ukvEx.UKVBadKeyListException( message=f"Invalid key format in request"
                                                 , data=error_msg_dict)
         else:
-            # Return nothing if the key is valid
+            # Return nothing if all the keys are valid
             return
 
     # Extract the user information dict from the HTTP Request headers
@@ -260,7 +260,8 @@ class UserKeyValueWorker:
                         missing_key_name_list = req.json
                         if res is not None:
                             for found_ukv in res:
-                                missing_key_name_list.remove(found_ukv[1])
+                                if found_ukv[1] in missing_key_name_list:
+                                    missing_key_name_list.remove(found_ukv[1])
                         if missing_key_name_list:
                             error_msg_dict = {
                                 'error': f"Keys were not found for {len(missing_key_name_list)} of the key strings submitted."
@@ -381,7 +382,7 @@ class UserKeyValueWorker:
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
-            return f"Key/value pair stored for user."
+            return f"Value stored as {valid_key} for user '{globus_id}'."
 
     def upsert_key_values(self, req: Request):
         globus_id = self._get_globus_id_for_request(req)
@@ -401,12 +402,12 @@ class UserKeyValueWorker:
                                   f" with req.data='{str(req.data)}'")
             raise ukvEx.UKVValueFormatException(    f"Invalid input, keys to store"
                                                     f" cannot be decoded as valid JSON.")
-        if len(user_key_value_dict_list) <= 0:
-            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for dictionaries of key/value pairs to store is empty.')
 
         if not isinstance(user_key_value_dict_list, list):
             raise ukvEx.UKVValueFormatException(f"Invalid input, only a list of dictionaries, each containing 'key' and"
                                                 f" 'value' entries, is accepted in the JSON payload.")
+        if len(user_key_value_dict_list) <= 0:
+            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for dictionaries of key/value pairs to store is empty.')
 
         # Flatten the dictionary of input aligned with the specification into a reasonable Python dictionary which
         # can be validated.  Also, put both the keys and values on a list which can then used for
@@ -498,7 +499,7 @@ class UserKeyValueWorker:
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
             if rows_deleted == 1:
-                return f"Key/value pair for user deleted."
+                return f"Deleted value stored as {valid_key} for user '{globus_id}'."
             elif rows_deleted == 0:
                 raise ukvEx.UKVKeyNotFoundException(f"Unable to find key '{valid_key}' for user '{globus_id}'.")
             else:
