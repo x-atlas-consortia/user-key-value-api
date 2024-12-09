@@ -252,7 +252,7 @@ def find_named_key_values():
     except (ukvEx.UKVRequestedKeysNotFoundException) as e_404:
         return jsonify(e_404.data), 404
     except (Exception) as e_500:
-        msg = f"Unexpected error retrieving all key/value data for user."
+        msg = f"Unexpected error retrieving the specified key/value data for user."
         logger.exception(msg)
         return jsonify({'error': msg}), 500
 
