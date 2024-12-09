@@ -260,7 +260,8 @@ class UserKeyValueWorker:
                         missing_key_name_list = req.json
                         if res is not None:
                             for found_ukv in res:
-                                missing_key_name_list.remove(found_ukv[1])
+                                if found_ukv[1] in missing_key_name_list:
+                                    missing_key_name_list.remove(found_ukv[1])
                         if missing_key_name_list:
                             error_msg_dict = {
                                 'error': f"Keys were not found for {len(missing_key_name_list)} of the key strings submitted."
