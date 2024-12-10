@@ -170,8 +170,18 @@ class UserKeyValueWorker:
 
     # Extract Python objects of the type required for the endpoint, and raise
     # exceptions when that cannot be done.
-    def _load_endpoint_json(self, req:Request, endpoint_types:list) -> json:
+    def _load_endpoint_json(self, req:Request, endpoint_py_types:list) -> json:
 
+        # Establish a cross-reference of from Python types expected in endpoint_py_types to
+        # Javascript types for display in the error message.  For types not explicitly mapped, use
+        endpoint_js_types = []
+        for endpoint_py_type in endpoint_py_types:
+            if endpoint_py_type.__name__=='list':
+                endpoint_js_types.append('array')
+            elif endpoint_py_type.__name__=='dict':
+                endpoint_js_types.append('object')
+            else:
+                endpoint_js_types.append(endpoint_py_type.__name__)
         # Verify the Request has the correct header for the expected JSON payload for this endpoint
         if not req.is_json:
             raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
@@ -185,9 +195,9 @@ class UserKeyValueWorker:
         payload_json = req.get_json()
         if payload_json is None:
             raise ukvEx.UKVValueFormatException(f"Invalid input, JSON payload is empty.")
-        if  not any(isinstance(payload_json, endpoint_type) for endpoint_type in endpoint_types):
+        if  not any(isinstance(payload_json, endpoint_type) for endpoint_type in endpoint_py_types):
             raise ukvEx.UKVValueFormatException(f"Invalid input, JSON value to store must load as one of: "
-                                                f"{', '.join(endpoint_type.__name__ for endpoint_type in endpoint_types)}")
+                                                f"{', '.join(endpoint_type for endpoint_type in endpoint_js_types)}")
         if len(payload_json) <= 0:
                 raise ukvEx.UKVValueFormatException(f"Invalid input, JSON payload is empty.")
         return payload_json
@@ -257,7 +267,7 @@ class UserKeyValueWorker:
             return globus_id
 
         req_key_list = self._load_endpoint_json(req=req
-                                                , endpoint_types=[list])
+                                                , endpoint_py_types=[list])
 
         self._validate_key_list(key_list=req_key_list) #req.get_json())
 
@@ -360,8 +370,8 @@ class UserKeyValueWorker:
             # Return of a Response object indicates an error accessing the user's Globus Identity ID
             return globus_id
 
-        user_key_value = self._load_endpoint_json(  req=req
-                                                    , endpoint_types=[list, dict])
+        user_key_value = self._load_endpoint_json(req=req
+                                                  , endpoint_py_types=[list, dict])
 
         with (closing(self.dbUKV.getDBConnection()) as dbConn):
             existing_autocommit_setting = dbConn.autocommit
@@ -394,7 +404,7 @@ class UserKeyValueWorker:
             return globus_id
 
         user_key_value_dict_list = self._load_endpoint_json(req=req
-                                                            , endpoint_types=[list])
+                                                            , endpoint_py_types=[list])
 
         # Flatten the dictionary of input aligned with the specification into a reasonable Python dictionary which
         # can be validated.  Also, put both the keys and values on a list which can then used for
