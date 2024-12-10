@@ -1,3 +1,4 @@
+import copy
 import logging
 import threading
 import json
@@ -249,10 +250,10 @@ class UserKeyValueWorker:
             # Return of a Response object indicates an error accessing the user's Globus Identity ID
             return globus_id
 
-        user_key_value = self._load_endpoint_json(  req=req
-                                                    , endpoint_types=[list])
+        req_key_list = self._load_endpoint_json(req=req
+                                                , endpoint_types=[list])
 
-        self._validate_key_list(key_list=req.get_json())
+        self._validate_key_list(key_list=req_key_list) #req.get_json())
 
         with (closing(self.dbUKV.getDBConnection()) as dbConn):
             with closing(dbConn.cursor(prepared=True)) as curs:
@@ -263,21 +264,19 @@ class UserKeyValueWorker:
                                                                                             , ', '.join(['%s'] * len(req.json)))
                     # execute() parameter substitution queries with a data tuple.
                     curs.execute(prepared_stmt,
-                                 ([globus_id]+req.json))
+                                 ([globus_id]+req_key_list))
                     res = curs.fetchall()
 
-                    if res is None or len(res) != len(req.json):
-                        # Assume all the keys to search for where not found, then remove the ones which
-                        # were found from the error data returned in the Response.
-                        missing_key_name_list = req.json
-                        if res is not None:
-                            for found_ukv in res:
-                                if found_ukv[1] in missing_key_name_list:
-                                    missing_key_name_list.remove(found_ukv[1])
-                        if missing_key_name_list:
+                    if res is None or len(res) != len(req_key_list):
+                        unfound_key_list = [
+                            req_key for req_key in req_key_list
+                            if req_key.lower() not in (found_ukv[1].lower() for found_ukv in res)
+                        ]
+
+                        if unfound_key_list:
                             error_msg_dict = {
-                                'error': f"Keys were not found for {len(missing_key_name_list)} of the key strings submitted."
-                                , 'unfound_keys': missing_key_name_list
+                                'error': f"Keys were not found for {len(unfound_key_list)} of the key strings submitted."
+                                , 'unfound_keys': unfound_key_list
                             }
                             raise ukvEx.UKVRequestedKeysNotFoundException(  message=f"Invalid key format in request"
                                                                             , data=error_msg_dict)
