@@ -1,6 +1,7 @@
 import logging
 import threading
 import json
+import unicodedata
 import re
 from contextlib import closing
 from typing import Annotated
@@ -126,6 +127,12 @@ class UserKeyValueWorker:
         # Return nothing if the key is valid
         return
 
+    def _remove_accents(self, input_str: str) -> str:
+        # Normalize to decompose accented characters into base characters and combining marks
+        nfkd_form = unicodedata.normalize('NFKD', input_str)
+        # Filter out combining marks to remove accents
+        return ''.join(char for char in nfkd_form if not unicodedata.combining(char))
+
     # Check the validity of each key in a list. Return nothing if all keys are valid. Raise a known
     # exception for any failed validation, with a dict attached to the exception describing each failed validation.
     def _validate_key_list(self, key_list:list):
@@ -144,7 +151,7 @@ class UserKeyValueWorker:
             raise ukvEx.UKVBadKeyListException( message=f"Invalid key format in request"
                                                 , data=error_msg_dict)
         else:
-            # Return nothing if the key is valid
+            # Return nothing if all the keys are valid
             return
 
     # Extract the user information dict from the HTTP Request headers
@@ -160,6 +167,40 @@ class UserKeyValueWorker:
             self.logger.error(f"Unable to find 'sub' entry in user_info={str(user_info)}")
             raise ukvEx.UKVDataStoreQueryException(f"Unable to retrieve Globus Identity ID for user.")
         return user_info['sub']
+
+    # Extract Python objects of the type required for the endpoint, and raise
+    # exceptions when that cannot be done.
+    def _load_endpoint_json(self, req:Request, endpoint_py_types:list) -> json:
+
+        # Establish a cross-reference of from Python types expected in endpoint_py_types to
+        # Javascript types for display in the error message.  For types not explicitly mapped, use
+        endpoint_js_types = []
+        for endpoint_py_type in endpoint_py_types:
+            if endpoint_py_type.__name__=='list':
+                endpoint_js_types.append('array')
+            elif endpoint_py_type.__name__=='dict':
+                endpoint_js_types.append('object')
+            else:
+                endpoint_js_types.append(endpoint_py_type.__name__)
+        # Verify the Request has the correct header for the expected JSON payload for this endpoint
+        if not req.is_json:
+            raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
+
+        # Verify the value to go into the database is a valid, non-empty JSON array or object.
+        try:
+            json.dumps(req.get_json())
+        except werkzeug.exceptions.BadRequest as br:
+            raise ukvEx.UKVValueFormatException(f"Invalid input, payload cannot be decoded as valid JSON.")
+
+        payload_json = req.get_json()
+        if payload_json is None:
+            raise ukvEx.UKVValueFormatException(f"Invalid input, JSON payload is empty.")
+        if  not any(isinstance(payload_json, endpoint_type) for endpoint_type in endpoint_py_types):
+            raise ukvEx.UKVValueFormatException(f"Invalid input, JSON value to store must load as one of: "
+                                                f"{', '.join(endpoint_type for endpoint_type in endpoint_js_types)}")
+        if len(payload_json) <= 0:
+                raise ukvEx.UKVValueFormatException(f"Invalid input, JSON payload is empty.")
+        return payload_json
 
     '''
     req - the GET request for single key
@@ -225,22 +266,10 @@ class UserKeyValueWorker:
             # Return of a Response object indicates an error accessing the user's Globus Identity ID
             return globus_id
 
-        if not req.is_json:
-            raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
+        req_key_list = self._load_endpoint_json(req=req
+                                                , endpoint_py_types=[list])
 
-        # Verify the value to go into the database is valid JSON, non-empty JSON.
-        try:
-            user_key_value = json.dumps(req.get_json())
-        except werkzeug.exceptions.BadRequest as br:
-            self.logger.error(msg=f"JSON decoding caused caused br='{br}'"
-                                  f" for globus_id='{globus_id}'"
-                                  f" with req.data='{str(req.data)}'")
-            raise ukvEx.UKVValueFormatException(    f"Invalid input, keys to find"
-                                                    f" cannot be decoded as valid JSON.")
-        if len(req.get_json()) <= 0:
-            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for keys to find is empty.')
-
-        self._validate_key_list(key_list=req.get_json())
+        self._validate_key_list(key_list=req_key_list) #req.get_json())
 
         with (closing(self.dbUKV.getDBConnection()) as dbConn):
             with closing(dbConn.cursor(prepared=True)) as curs:
@@ -251,20 +280,19 @@ class UserKeyValueWorker:
                                                                                             , ', '.join(['%s'] * len(req.json)))
                     # execute() parameter substitution queries with a data tuple.
                     curs.execute(prepared_stmt,
-                                 ([globus_id]+req.json))
+                                 ([globus_id]+req_key_list))
                     res = curs.fetchall()
 
-                    if res is None or len(res) != len(req.json):
-                        # Assume all the keys to search for where not found, then remove the ones which
-                        # were found from the error data returned in the Response.
-                        missing_key_name_list = req.json
-                        if res is not None:
-                            for found_ukv in res:
-                                missing_key_name_list.remove(found_ukv[1])
-                        if missing_key_name_list:
+                    if res is None or len(res) != len(req_key_list):
+                        unfound_key_list = [
+                            req_key for req_key in req_key_list
+                            if self._remove_accents(req_key).lower() not in (self._remove_accents(found_ukv[1]).lower() for found_ukv in res)
+                        ]
+
+                        if unfound_key_list:
                             error_msg_dict = {
-                                'error': f"Keys were not found for {len(missing_key_name_list)} of the key strings submitted."
-                                , 'unfound_keys': missing_key_name_list
+                                'error': f"Keys were not found for {len(unfound_key_list)} of the key strings submitted."
+                                , 'unfound_keys': unfound_key_list
                             }
                             raise ukvEx.UKVRequestedKeysNotFoundException(  message=f"Invalid key format in request"
                                                                             , data=error_msg_dict)
@@ -342,22 +370,8 @@ class UserKeyValueWorker:
             # Return of a Response object indicates an error accessing the user's Globus Identity ID
             return globus_id
 
-        if not req.is_json:
-            raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
-
-        # Verify the value to go into the database is valid JSON, non-empty JSON.
-        try:
-            user_key_value = json.dumps(req.get_json())
-        except werkzeug.exceptions.BadRequest as br:
-            self.logger.error(msg=f"JSON decoding caused caused br='{br}'"
-                                  f" for globus_id='{globus_id}',"
-                                  f" valid_key='{valid_key}',"
-                                  f" with req.data='{str(req.data)}'")
-            raise ukvEx.UKVValueFormatException(f"Invalid input, value to store for key '{valid_key}'"
-                                                f" cannot be decoded as valid JSON.")
-        if user_key_value is None or len(user_key_value) <= 0 or len(req.get_json()) <= 0:
-            raise ukvEx.UKVValueFormatException(  f"Invalid input, JSON value to store for key '{valid_key}'"
-                                            f" is empty.")
+        user_key_value = self._load_endpoint_json(req=req
+                                                  , endpoint_py_types=[list, dict])
 
         with (closing(self.dbUKV.getDBConnection()) as dbConn):
             existing_autocommit_setting = dbConn.autocommit
@@ -381,7 +395,7 @@ class UserKeyValueWorker:
 
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
-            return f"Key/value pair stored for user."
+            return f"Value stored as '{valid_key}' for user '{globus_id}'."
 
     def upsert_key_values(self, req: Request):
         globus_id = self._get_globus_id_for_request(req)
@@ -389,24 +403,8 @@ class UserKeyValueWorker:
             # Return of a Response object indicates an error accessing the user's Globus Identity ID
             return globus_id
 
-        if not req.is_json:
-            raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
-
-        # Verify the value to go into the database is valid JSON, non-empty JSON.
-        try:
-            user_key_value_dict_list = req.get_json()
-        except werkzeug.exceptions.BadRequest as br:
-            self.logger.error(msg=f"JSON decoding caused caused br='{br}'"
-                                  f" for globus_id='{globus_id}'"
-                                  f" with req.data='{str(req.data)}'")
-            raise ukvEx.UKVValueFormatException(    f"Invalid input, keys to store"
-                                                    f" cannot be decoded as valid JSON.")
-        if len(user_key_value_dict_list) <= 0:
-            raise ukvEx.UKVValueFormatException('Invalid input, JSON value for dictionaries of key/value pairs to store is empty.')
-
-        if not isinstance(user_key_value_dict_list, list):
-            raise ukvEx.UKVValueFormatException(f"Invalid input, only a list of dictionaries, each containing 'key' and"
-                                                f" 'value' entries, is accepted in the JSON payload.")
+        user_key_value_dict_list = self._load_endpoint_json(req=req
+                                                            , endpoint_py_types=[list])
 
         # Flatten the dictionary of input aligned with the specification into a reasonable Python dictionary which
         # can be validated.  Also, put both the keys and values on a list which can then used for
@@ -419,7 +417,7 @@ class UserKeyValueWorker:
             if 'key' not in kv_dict or 'value' not in kv_dict:
                 raise ukvEx.UKVValueFormatException(f"Invalid input, only a list of dictionaries, each containing 'key' and 'value' entries, is accepted in the JSON payload.")
 
-            # Verify the value to go into the database is valid JSON, non-empty JSON.
+            # Verify the value to go into the database is valid, non-empty JSON.
             try:
                 value_json = json.dumps(kv_dict['value'])
             except werkzeug.exceptions.BadRequest as br:
@@ -498,7 +496,7 @@ class UserKeyValueWorker:
             # restore the autocommit setting, even though closing it by going out of scope.
             dbConn.autocommit = existing_autocommit_setting
             if rows_deleted == 1:
-                return f"Key/value pair for user deleted."
+                return f"Deleted value stored as '{valid_key}' for user '{globus_id}'."
             elif rows_deleted == 0:
                 raise ukvEx.UKVKeyNotFoundException(f"Unable to find key '{valid_key}' for user '{globus_id}'.")
             else:
