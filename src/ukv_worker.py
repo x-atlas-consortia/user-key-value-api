@@ -1,7 +1,7 @@
-import copy
 import logging
 import threading
 import json
+import unicodedata
 import re
 from contextlib import closing
 from typing import Annotated
@@ -126,6 +126,12 @@ class UserKeyValueWorker:
                                               f" database-supported keys for key='{a_key}'.")
         # Return nothing if the key is valid
         return
+
+    def _remove_accents(self, input_str: str) -> str:
+        # Normalize to decompose accented characters into base characters and combining marks
+        nfkd_form = unicodedata.normalize('NFKD', input_str)
+        # Filter out combining marks to remove accents
+        return ''.join(char for char in nfkd_form if not unicodedata.combining(char))
 
     # Check the validity of each key in a list. Return nothing if all keys are valid. Raise a known
     # exception for any failed validation, with a dict attached to the exception describing each failed validation.
@@ -270,7 +276,7 @@ class UserKeyValueWorker:
                     if res is None or len(res) != len(req_key_list):
                         unfound_key_list = [
                             req_key for req_key in req_key_list
-                            if req_key.lower() not in (found_ukv[1].lower() for found_ukv in res)
+                            if self._remove_accents(req_key).lower() not in (self._remove_accents(found_ukv[1]).lower() for found_ukv in res)
                         ]
 
                         if unfound_key_list:
