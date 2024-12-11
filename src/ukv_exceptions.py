@@ -1,5 +1,6 @@
-import json
-
+# Exceptions used internally by the service, typically for anticipated exceptions.
+# Knowledge of Flask, HTTP codes, and formatting of the Response should be
+# closer to the endpoing @app.route() methods rather than throughout service.
 class UKVConfigurationException(Exception):
     """Exception raised when problems loading the service configuration are encountered."""
     def __init__(self, message='There were problems loading the configuration for the service.'):
