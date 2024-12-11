@@ -42,8 +42,8 @@ SQL_DELETE_USERID_KEY_VALUE = \
      "   AND KEY_NAME = %s"
      )
 
-# Below a strings which must be developed into prepared statements due to needing
-# a variable number of placeholders.
+# Below are strings (rather than scalars) which must be developed into
+# prepared statements due to needing a variable number of placeholders.
 SQL_SELECT_USERID_NAMED_KEY_VALUES_str =    "SELECT GLOBUS_IDENTITY_ID AS globus_id" \
                                             "       ,KEY_NAME AS keyname" \
                                             "       ,KEY_VALUE AS keyvalue" \
