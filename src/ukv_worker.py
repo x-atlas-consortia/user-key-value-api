@@ -109,19 +109,19 @@ class UserKeyValueWorker:
     # exception for failed validations.
     def validate_key(self, a_key: Annotated[str, 50]):
         if len(a_key) > 50:
-            self.logger.error(f"Length {len(a_key)} is longer than database-supported keys for"
+            self.logger.info(f"Length {len(a_key)} is longer than database-supported keys for"
                               f" key={a_key}.")
             raise ukvEx.UKVKeyFormatException(f"Specified key '{a_key}' is longer than supported.")
         if re.match(pattern='.*\s.*', string=a_key):
-            self.logger.error(f"Whitespace is not allowed in database-supported keys for"
+            self.logger.info(f"Whitespace is not allowed in database-supported keys for"
                               f" key='{a_key}'.")
             raise ukvEx.UKVKeyFormatException(f"Specified key '{a_key}' contains whitespace.")
         if re.match(pattern='.*[\'\"\`\#\_\%].*', string=a_key):
-            self.logger.error(f"key='{a_key}' was rejected for containing an unsupported character.")
+            self.logger.info(f"key='{a_key}' was rejected for containing an unsupported character.")
             raise ukvEx.UKVKeyFormatException(  f"The characters ',\",`,#,_, and % are not allowed in"
                                                 f" database-supported keys for key='{a_key}'.")
         if re.match(pattern='.*(--|\*/|/\*).*', string=a_key):
-            self.logger.error(f"key='{a_key}' was rejected for containing an unsupported character sequence.")
+            self.logger.info(f"key='{a_key}' was rejected for containing an unsupported character sequence.")
             raise ukvEx.UKVKeyFormatException(f"The character sequences */,/*, and -- are not allowed in"
                                               f" database-supported keys for key='{a_key}'.")
         # Return nothing if the key is valid
@@ -172,8 +172,9 @@ class UserKeyValueWorker:
     # exceptions when that cannot be done.
     def _load_endpoint_json(self, req:Request, endpoint_py_types:list) -> json:
 
-        # Establish a cross-reference of from Python types expected in endpoint_py_types to
+        # Establish a cross-reference from Python types expected in endpoint_py_types to
         # Javascript types for display in the error message.  For types not explicitly mapped, use
+        # the Python type name.
         endpoint_js_types = []
         for endpoint_py_type in endpoint_py_types:
             if endpoint_py_type.__name__=='list':
@@ -182,6 +183,7 @@ class UserKeyValueWorker:
                 endpoint_js_types.append('object')
             else:
                 endpoint_js_types.append(endpoint_py_type.__name__)
+
         # Verify the Request has the correct header for the expected JSON payload for this endpoint
         if not req.is_json:
             raise ukvEx.UKVRequestFormatException("Invalid request. The HTTP Content-Type Header must indicate 'application/json'.")
@@ -199,12 +201,19 @@ class UserKeyValueWorker:
             raise ukvEx.UKVValueFormatException(f"Invalid input, JSON value to store must load as one of: "
                                                 f"{', '.join(endpoint_type for endpoint_type in endpoint_js_types)}")
         if len(payload_json) <= 0:
-                raise ukvEx.UKVValueFormatException(f"Invalid input, JSON payload is empty.")
+            raise ukvEx.UKVValueFormatException(f"Invalid input, JSON payload is empty.")
         return payload_json
 
     '''
     req - the GET request for single key
     valid_key - the key for which the associated value should be retrieved
+    
+    Retrieves the value for a case-insensitive, accent-insensitive match to the key named in the Request,
+    for the user.  The value will be valid JSON as retrieved from the data store.
+    
+    N.B. the key matched in the data store pay have different capitalization or diacritical marks from
+    what was presented in the Request.  That cannot be discerned from the value-only return of this method,
+    like it can be using find_named_key_values().
     '''
     def get_key_value(self, req: Request, valid_key: Annotated[str, 50]) -> str:
 
@@ -252,12 +261,16 @@ class UserKeyValueWorker:
     Parameters
     ----------
     req - the POST request for certain named key/value pairs for the user
-
+    
     Returns
     -------
-    A Python List containing a Python Dictionary for each key/value
-    pair the user has matching a key named in the Request.  Each key/value dictionary will have a
-    "key" element which is a string for a valid UTF-8 key name, and a "value" element which is valid JSON.
+    A Python List containing a Python Dictionary for each key/value pair the user has which is a
+    case-insensitive, accent-insensitive match to a key named in the Request.  Each key/value dictionary will have a
+    "key" element which is the valid UTF-8 key name and a "value" element which is valid JSON as retrieved from the
+    data store.
+    
+    N.B. the key retrieved from the data store pay have different capitalization or diacritical marks from
+    what was presented in the Request.
     '''
     def find_named_key_values(self, req: Request) -> list:
 
@@ -269,7 +282,7 @@ class UserKeyValueWorker:
         req_key_list = self._load_endpoint_json(req=req
                                                 , endpoint_py_types=[list])
 
-        self._validate_key_list(key_list=req_key_list) #req.get_json())
+        self._validate_key_list(key_list=req_key_list)
 
         with (closing(self.dbUKV.getDBConnection()) as dbConn):
             with closing(dbConn.cursor(prepared=True)) as curs:
@@ -323,9 +336,9 @@ class UserKeyValueWorker:
 
     Returns
     -------
-    A Python List containing a Python Dictionary for each key/value
-    pair the user has.  Each key/value dictionary will have a "key" element which
-    is a string for a valid UTF-8 key name, and a "value" element which is valid JSON.
+    A Python List containing a Python Dictionary for each key/value pair the user has in the data store.
+    Each key/value dictionary will have a "key" element which is a string for a valid UTF-8 key name, and
+    a "value" element which is valid JSON.
     '''
     def get_all_key_values(self, req: Request) -> list:
 
@@ -363,6 +376,16 @@ class UserKeyValueWorker:
                             f" for globus_id='{globus_id}'")
         raise ukvEx.UKVWorkerException(f"Unexpected execution flow retrieving all key/value data for user.")
 
+    '''
+    Parameters
+    ----------
+    req - the PUT request to create or update a key/value pair in the data store.
+    valid_key - A key name which has already passed the validate_key() method
+
+    Returns
+    -------
+    A JSON object with a "message" entry on success or an "error" entry on failure
+    '''
     def upsert_key_value(self, req: Request, valid_key: Annotated[str, 50]):
 
         globus_id = self._get_globus_id_for_request(req)
@@ -397,6 +420,15 @@ class UserKeyValueWorker:
             dbConn.autocommit = existing_autocommit_setting
             return f"Value stored as '{valid_key}' for user '{globus_id}'."
 
+    '''
+    Parameters
+    ----------
+    req - the PUT request to create or update a key/value pairs in the data store contained in the JSON payload.
+
+    Returns
+    -------
+    A JSON object with a "message" entry on success or an "error" entry on failure
+    '''
     def upsert_key_values(self, req: Request):
         globus_id = self._get_globus_id_for_request(req)
         if isinstance(globus_id, Response):
@@ -465,6 +497,16 @@ class UserKeyValueWorker:
             dbConn.autocommit = existing_autocommit_setting
             return f"Stored {stored_key_value_count} key/value pairs for user."
 
+    '''
+    Parameters
+    ----------
+    req - the PUT request to delete a key/value pair in the data store.
+    valid_key - A key name which has already passed the validate_key() method
+
+    Returns
+    -------
+    A JSON object with a "message" entry on success or an "error" entry on failure
+    '''
     def delete_key_value(self, req: Request, valid_key: Annotated[str, 50]):
 
         globus_id = self._get_globus_id_for_request(req)
