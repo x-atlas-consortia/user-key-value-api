@@ -43,4 +43,4 @@ cd docker
 
 ### Updating API Documentation
 
-The documentation for the API calls is hosted on SmartAPI. Modifying the `ukv-api-spec.yaml` file and commititng the changes to github should update the API shown on SmartAPI. SmartAPI allows users to register API documents.  The documentation is associated with this github account: api-developers@hubmapconsortium.org.
+The documentation for the API calls is hosted on SmartAPI. Modifying the `user-key-value-api-spec.yaml` file and commititng the changes to github should update the API shown on SmartAPI. SmartAPI allows users to register API documents.  The documentation is associated with this github account: api-developers@hubmapconsortium.org.

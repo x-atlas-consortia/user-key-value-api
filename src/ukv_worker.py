@@ -307,7 +307,7 @@ class UserKeyValueWorker:
                                 'error': f"Keys were not found for {len(unfound_key_list)} of the key strings submitted."
                                 , 'unfound_keys': unfound_key_list
                             }
-                            raise ukvEx.UKVRequestedKeysNotFoundException(  message=f"Invalid key format in request"
+                            raise ukvEx.UKVRequestedKeysNotFoundException(  message=f"Specified key(s) could not be found."
                                                                             , data=error_msg_dict)
 
                     # Iterate through each user key/value in the result set, form a Python Dictionary and add it to
