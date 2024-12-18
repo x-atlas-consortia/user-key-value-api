@@ -1,4 +1,4 @@
-openapi: 3.0.0
+openapi: 3.0.3
 info:
   description: 'The HuBMAP User Key/Value API is a RESTful web service with create/update, read, and delete operations for key/value pairs associated with an authorized user, which persist in a backend data store.'
   version: 1.0.0
@@ -6,13 +6,9 @@ info:
   contact:
     name: HuBMAP Help Desk
     email: help@hubmapconsortium.org
-  termsOfService: 'https://hubmapconsortium.org'
   license:
     name: MIT License
     url: 'https://github.com/x-atlas-consortia/user-key-value-api/blob/main/LICENSE'
-externalDocs:
-  description: User Key-Value Store API
-  url: https://docs.google.com/document/d/1FoT9E3nmP0uYU4M0c5Ck1DJRe4b-pR7zto19u5h-RtE/edit?tab=t.0
 servers:
   - url: 'https://ukv.api.hubmapconsortium.org/'
 
