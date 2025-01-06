@@ -101,7 +101,7 @@ paths:
             type: string
       responses:
         '200':
-          description: The key in the Request parameter was read for the Globus ID of the bearer token. The Response has a JSON body which is the complete value stored for the user's key	  
+          description: The key in the Request parameter was read for the Globus ID of the bearer token. The Response has a JSON body which is the complete value stored for the user's key
         '400':
           description: The read operation failed. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.  Typical causes are keys which have whitespace or disallowed characters and keys which are too long.
         '404':
