@@ -7,6 +7,11 @@ Authorization: Bearer <HuBMAP Globus Groups Token>
 
 The user's identity will be retrieved from the auth token to identify who's key(s) will be retrieved or managed by the various endpoints described in the Smart API spec.
 
+## SmartAPI documentation
+
+The SmartAPI documentation for the ukv-api can be found at https://smart-api.info/ui/f1ca94525fdc5bc42c4bf82e3c6802d9.
+
+
 ## Docker build for local/DEV development
 
 There are a few configurable environment variables to keep in mind:
