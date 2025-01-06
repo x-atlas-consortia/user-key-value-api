@@ -11,6 +11,8 @@ info:
     url: 'https://github.com/x-atlas-consortia/user-key-value-api/blob/main/LICENSE'
 servers:
   - url: 'https://ukv.api.hubmapconsortium.org/'
+security:
+  - bearerAuth: []
 
 components:
   securitySchemes:
