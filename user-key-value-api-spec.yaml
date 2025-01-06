@@ -20,7 +20,7 @@ components:
       type: apiKey
       name: Authorization
       in: header
-      description: Globus bearer token to authorize requests. Have to use apiKey to pass AWS API Gateway import validation.
+      description: Globus bearer token to authorize requests to pass AWS API Gateway import validation.  Prefixed with "Bearer "--e.g., "Bearer <my-current-globus-token>"
   schemas:
     KeyValuePair:
       type: object
