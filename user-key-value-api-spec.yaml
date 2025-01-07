@@ -11,6 +11,8 @@ info:
     url: 'https://github.com/x-atlas-consortia/user-key-value-api/blob/main/LICENSE'
 servers:
   - url: 'https://ukv.api.hubmapconsortium.org/'
+security:
+  - bearerAuth: []
 
 components:
   securitySchemes:
@@ -18,7 +20,7 @@ components:
       type: apiKey
       name: Authorization
       in: header
-      description: Globus bearer token to authorize requests. Have to use apiKey to pass AWS API Gateway import validation.
+      description: Globus bearer token to authorize requests to pass AWS API Gateway import validation.  Prefixed with "Bearer "--e.g., "Bearer <my-current-globus-token>"
   schemas:
     KeyValuePair:
       type: object
@@ -101,7 +103,7 @@ paths:
             type: string
       responses:
         '200':
-          description: The key in the Request parameter was read for the Globus ID of the bearer token. The Response has a JSON body which is the complete value stored for the user's key	  
+          description: The key in the Request parameter was read for the Globus ID of the bearer token. The Response has a JSON body which is the complete value stored for the user's key
         '400':
           description: The read operation failed. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.  Typical causes are keys which have whitespace or disallowed characters and keys which are too long.
         '404':
