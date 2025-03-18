@@ -215,7 +215,7 @@ class UserKeyValueWorker:
     what was presented in the Request.  That cannot be discerned from the value-only return of this method,
     like it can be using find_named_key_values().
     '''
-    def get_key_value(self, req: Request, valid_key: Annotated[str, 50]) -> str:
+    def get_key_value(self, req: Request, valid_key: Annotated[str, 50]) -> bytearray:
 
         globus_id = self._get_globus_id_for_request(req)
         if isinstance(globus_id, Response):
