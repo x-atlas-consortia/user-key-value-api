@@ -186,8 +186,19 @@ def get_key_value(key: Annotated[str, 50]):
         return jsonify({'error': kfe.message}), 400
 
     try:
-        value_json = ukv_worker.get_key_value(req=request
-                                              , valid_key=key)
+        value_bytearray = ukv_worker.get_key_value( req=request
+                                                    , valid_key=key)
+        # Possibly beginning with mysql-connector-python 8.0.24, results
+        # returned are wrapped with bytearray(), rather than being an
+        # array of bytes.
+        # https://bugs.mysql.com/bug.php?id=97177
+        # This seems to be happening on our tables with
+        # DEFAULT CHARACTER SET = utf8mb4
+        # COLLATE = utf8mb4_0900_ai_ci;
+        # rather than only on "binary" columns, as suggested by the bug.
+        # So add a direct conversion to a string when value_json is of the form
+        # bytearray(b'{"my_second_key": "this is second VIA PUT, updated with caps"}')
+        value_json = value_bytearray.decode()
         return make_response(value_json
                              , 200
                              , {'Content-Type': 'application/json'})
