@@ -14,9 +14,6 @@ import ukv_exceptions as ukvEx
 
 from flask import Flask, request, jsonify, make_response, Request
 
-# HuBMAP commons
-from hubmap_commons.hm_auth import secured
-
 # Root logger configuration
 global logger
 
@@ -106,6 +103,7 @@ def status():
 """
 An endpoint to create or update a key/value pair for the authenticated user.
 The value is valid JSON attached to the HTTP Request.
+Endpoint access for an authenticated user is managed in the AWS Gateway.
 
 Parameters
 ----------
@@ -130,7 +128,6 @@ HTTP 500 Response
 An unexpected error in the server, including unexpected problems with the data store.
 """
 @app.route(rule='/user/keys/<key>', methods=["PUT"])
-@secured(has_write=True)
 def upsert_key_value(key: Annotated[str, 50]):
     global ukv_worker
 
@@ -310,6 +307,7 @@ are specified in the JSON payload of the HTTP Request.  The JSON body is a list 
 dictionary for each key/value pair for the user to store.  Each key must be valid, and each value must
 be valid JSON itself. No key/value pair is stored unless all key/value pairs are stored, as indicated
 by an HTTP 200 Response.
+Endpoint access for an authenticated user is managed in the AWS Gateway.
 
 Parameters
 ----------
@@ -335,7 +333,6 @@ HTTP 500 Response
 An unexpected error in the server, including unexpected problems with the data store.
 """
 @app.route(rule='/user/keys', methods=["PUT"])
-@secured(has_write=True)
 def upsert_key_values():
     global ukv_worker
 
@@ -353,6 +350,7 @@ def upsert_key_values():
 """
 An endpoint to delete a key/value pair for the authenticated user.
 On success returns an HTTP 200 Response.
+Endpoint access for an authenticated user is managed in the AWS Gateway.
 
 Parameters
 ----------
@@ -376,7 +374,6 @@ HTTP 500 Response
 An unexpected error in the server, including unexpected problems with the data store.
 """
 @app.route(rule='/user/keys/<key>', methods=["DELETE"])
-@secured(has_write=True)
 def delete_key_value(key: Annotated[str, 50]):
     global ukv_worker
 
