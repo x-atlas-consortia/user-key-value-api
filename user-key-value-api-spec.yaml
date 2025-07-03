@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   description: 'The HuBMAP User Key/Value API is a RESTful web service with create/update, read, and delete operations for key/value pairs associated with an authorized user, which persist in a backend data store.'
-  version: 1.0.0
+  version: 1.0.1
   title: HuBMAP UKV API
   contact:
     name: HuBMAP Help Desk
@@ -90,6 +90,10 @@ paths:
           description: The key was created or updated with the value of the JSON in the Request and the Globus ID of the bearer token. The Response has a JSON body with one object with a "message" key, and the associated value confirms the successful operation
         '400':
           description: The create or update operation failed, so nothing changed in the data store. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.  Typical causes are keys which have whitespace or disallowed characters, keys which are too long, and invalid JSON in the Request.
+        '401':
+          description: The user provided Globus token has expired or the user did not supply a valid token.
+        '403':
+          description: The user provided Globus token does not have the desired membership permission to access this resource.
         '500':
           description: An internal error occurred, causing the operation to fail, so nothing changed in the data store. Typical of unexpected problems and monitored by IT staff.
     get:
@@ -106,6 +110,10 @@ paths:
           description: The key in the Request parameter was read for the Globus ID of the bearer token. The Response has a JSON body which is the complete value stored for the user's key
         '400':
           description: The read operation failed. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.  Typical causes are keys which have whitespace or disallowed characters and keys which are too long.
+        '401':
+          description: The user provided Globus token has expired or the user did not supply a valid token.
+        '403':
+          description: The user provided Globus token does not have the desired membership permission to access this resource.
         '404':
           description: The read operation failed because the key was not found for the user. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.
         '500':
@@ -124,6 +132,10 @@ paths:
           description: The key in the Request parameter and its value were deleted for the Globus ID of the bearer token.
         '400':
           description: The delete operation failed. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.  Typical causes are keys which have whitespace or disallowed characters and keys which are too long.
+        '401':
+          description: The user provided Globus token has expired or the user did not supply a valid token.
+        '403':
+          description: The user provided Globus token does not have the desired membership permission to access this resource.
         '404':
           description: The delete operation failed because the key was not found for the user. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.
         '500':
@@ -144,6 +156,10 @@ paths:
           description: Every key/value pair was created or updated using the JSON array of the Request and the Globus ID of the bearer token. The Response has a JSON body with one object with a "message" key, and the associated value confirms the successful operation
         '400':
           description: Creation or update failed for one or more key/value pairs, so nothing changed in the data store. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.  Typical causes are keys which have whitespace or disallowed characters, keys which are too long, and invalid JSON in the Request.
+        '401':
+          description: The user provided Globus token has expired or the user did not supply a valid token.
+        '403':
+          description: The user provided Globus token does not have the desired membership permission to access this resource.
         '500':
           description: An internal error occurred, causing the operation to fail, so nothing changed in the data store. Typical of unexpected problems and monitored by IT staff.
     get:
@@ -157,6 +173,10 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/KeyValueArray'
               example: [{"key": "my-stashed-dict", "value": {"my-best-item": "tools", "my-worst-item": "tasks"}}, {"key": "my-stashed-list", "value": ["tools", "tasks", "time"]}]
+        '401':
+          description: The user provided Globus token has expired or the user did not supply a valid token.
+        '403':
+          description: The user provided Globus token does not have the desired membership permission to access this resource.
         '404':
           description: No key/value pairs were found for the Globus ID of the bearer token in the data store. The Response has a JSON body with one object with an "error" key, and the associated value describes the problem.
         '500':
@@ -185,6 +205,10 @@ paths:
               example: [{"key": "keyname1", "value": ["flour","water","salt","yeast"]},{"key": "keyname10", "value": ["wheat", "sourdough"]},{"key": "keyname100", "value": ["oven", "dutch oven", "bowls"]}]
         '400':
           description: The read operation failed. The Response has a JSON body with one array.  Each element of array is an object with an "error" key, and the associated value describes the problem.  Typical causes are keys which have whitespace or disallowed characters, keys which are too long, and invalid JSON in the Request.  Any key specified in the Request that does not have an error message was found in the data store but not returned in the error Response.
+        '401':
+          description: The user provided Globus token has expired or the user did not supply a valid token.
+        '403':
+          description: The user provided Globus token does not have the desired membership permission to access this resource.
         '404':
           description: The read operation failed because at least one specified key was not found for the user. The Response has a JSON body with one object with an "error" key, whose value describes the problem, and one "unfound_keys" key, whose value is an array of unfound keys specified.
         '500':
