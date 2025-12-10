@@ -106,7 +106,7 @@ else
         cp ../VERSION ukv-api
         cp ../BUILD ukv-api
 
-        docker compose -f docker-compose.yml -f docker-compose.development.yml -p ukv-api build
+        docker compose -f docker-compose.yml -f docker-compose.development.yml -p ukv-api build --no-cache
     elif [ "$1" = "start" ]; then
         docker compose -f docker-compose.yml -f docker-compose.development.yml -p ukv-api up -d
     elif [ "$1" = "stop" ]; then
