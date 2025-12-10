@@ -7,8 +7,6 @@ import requests
 # Don't confuse urllib (Python native library) with urllib3 (3rd-party library, requests also uses urllib3)
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-# from ukv_exceptions import UKVDataStoreQueryException, UKVWorkerException, UKVKeyFormatException, \
-#     UKVKeyNotFoundException, UKVValueFormatException, UKVRequestFormatException
 from ukv_worker import UserKeyValueWorker
 import ukv_exceptions as ukvEx
 
