@@ -8,24 +8,20 @@ app.cfg
 
 reload_from_neo4j/reload.properties
 
-# Ignore docker env file
-hubmap-docker/.env
-
+# Ignore the generated BUILD file
 BUILD
-# mounted BUILD/VERSION file
+
+# Ignore the docker mounted BUILD and VERSION
 src/BUILD
 src/VERSION
 
-# Ignore docker copied files/folders
-hubmap-docker/ukv-api/BUILD
-hubmap-docker/ukv-api/VERSION
-hubmap-docker/ukv-api/src
-hubmap-docker/ukve-api/log
+# Ignore docker env file
+docker/.env
 
-sennet-docker/ukv-api/BUILD
-sennet-docker/ukv-api/VERSION
-sennet-docker/ukv-api/src
-sennet-docker/ukv-api/log
+# Ignore copied files
+docker/entity-api/src
+docker/entity-api/VERSION
+docker/entity-api/BUILD
 
 # Ignore backup files created by MySQL Workbench
 sql/*.bak
