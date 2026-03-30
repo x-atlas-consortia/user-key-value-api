@@ -19,9 +19,9 @@ src/VERSION
 docker/.env
 
 # Ignore copied files
-docker/entity-api/src
-docker/entity-api/VERSION
-docker/entity-api/BUILD
+docker/ukv-api/src
+docker/ukv-api/VERSION
+docker/ukv-api/BUILD
 
 # Ignore backup files created by MySQL Workbench
 sql/*.bak
