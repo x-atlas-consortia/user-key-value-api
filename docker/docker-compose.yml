@@ -29,13 +29,7 @@ services:
       - "./ukv-api/nginx/conf.d:/etc/nginx/conf.d"
     networks:
       - gateway_hubmap
-    # Send docker logs to AWS CloudWatch
-    logging: 
-      driver: awslogs
-      options:
-        awslogs-region: us-east-1
-        awslogs-group: ukv-api-docker-logs
-        awslogs-stream: ${LOG_STREAM}
+
 
 networks:
   # This is the network created by gateway to enable communicaton between multiple docker-compose projects
